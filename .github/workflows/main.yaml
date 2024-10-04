@@ -1,3 +1,5 @@
+You have an error in your yaml syntax on line 42
+
 name: Gold Price Data Pipeline
 
 on:
