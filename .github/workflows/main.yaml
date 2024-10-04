@@ -73,16 +73,16 @@ jobs:
           --region ${REGION}
 
     - name: Deploy Cloud Function
-    run: |
-      gcloud functions deploy process_gold_price \
-        --gen2 \
-        --runtime=python311 \
-        --trigger-topic=gold-price \
-        --entry-point=process_pubsub \
-        --source=. \
-        --region=us-west1 \
-        --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
-        --verbosity=debug
+      run: |
+        gcloud functions deploy process_gold_price \
+          --gen2 \
+          --runtime=python311 \
+          --trigger-topic=gold-price \
+          --entry-point=process_pubsub \
+          --source=. \
+          --region=us-west1 \
+          --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
+          --verbosity=debug
 
     - name: Trigger Cloud Run Service
       run: |
