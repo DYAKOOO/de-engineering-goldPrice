@@ -34,7 +34,7 @@ jobs:
         gcloud auth configure-docker
         echo "PROJECT_ID=${PROJECT_ID}"
 
-    - name: Build and Push Producer Image
+   - name: Build and Push Producer Image
       run: |
         echo "Building image for project: ${PROJECT_ID}"
         docker build -t us-west1-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} -f Dockerfile-producer .
