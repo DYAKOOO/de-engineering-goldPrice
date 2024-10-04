@@ -4,6 +4,7 @@ from google.cloud import bigquery
 from google.cloud import storage
 import logging
 
+#used with github workflows. 
 def process_pubsub(event, context):
     pubsub_message = base64.b64decode(event['data']).decode('utf-8')
     logging.info(f"Received message: {pubsub_message}")
