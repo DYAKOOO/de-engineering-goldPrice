@@ -48,7 +48,7 @@ jobs:
 
     - name: Deploy Infrastructure with Pulumi
       run: |
-        cd iac
+        cd infrastructure
         pulumi stack select dev
         pulumi config set gcp:project $PROJECT_ID
         pulumi up --yes
