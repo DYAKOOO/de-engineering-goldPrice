@@ -38,12 +38,19 @@ jobs:
 
     - name: Create Artifact Registry Repository
       run: |
-        gcloud artifacts repositories create gold-price-repo \
-          --repository-format=docker \
+        if ! gcloud artifacts repositories describe gold-price-repo \
           --location=${REGION} \
-          --description="Gold Price Analysis Docker Repository" \
-          --quiet
-
+          --format="value(name)" 2>/dev/null; then
+          echo "Repository does not exist. Creating it now."
+          gcloud artifacts repositories create gold-price-repo \
+            --repository-format=docker \
+            --location=${REGION} \
+            --description="Gold Price Analysis Docker Repository" \
+            --quiet
+        else
+          echo "Repository already exists. Skipping creation."
+        fi
+      
     - name: Build and Push Producer Image
       run: |
         echo "Building image for project: ${PROJECT_ID}"
