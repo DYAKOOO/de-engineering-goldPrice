@@ -49,10 +49,10 @@ jobs:
       env:
         PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
 
-      - name: Update Cloud Run Service
+    - name: Update Cloud Run Service
       run: |
         gcloud run services update gold-price-ingestion \
-          --image us-west1-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} \
+          --image gcr.io/$PROJECT_ID/$IMAGE_PRODUCER:$IMAGE_TAG \
           --region us-west1
 
     - name: Deploy Cloud Function
