@@ -6,17 +6,19 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    - cron: '0 0 * * *' # Runs at 00:00 UTC every day
+    - cron: '0 0 * * *'  # Runs at 00:00 UTC every day
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   IMAGE_PRODUCER: gold-price-producer
   IMAGE_TAG: ${{ github.sha }}
+  REGION: us-west1
 
 jobs:
   deploy:
     name: Deploy to GCP
     runs-on: ubuntu-latest
+
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -31,14 +33,22 @@ jobs:
 
     - name: Configure Docker
       run: |
-        gcloud auth configure-docker
+        gcloud auth configure-docker ${REGION}-docker.pkg.dev
         echo "PROJECT_ID=${PROJECT_ID}"
+
+    - name: Create Artifact Registry Repository
+      run: |
+        gcloud artifacts repositories create gold-price-repo \
+          --repository-format=docker \
+          --location=${REGION} \
+          --description="Gold Price Analysis Docker Repository" \
+          --quiet
 
     - name: Build and Push Producer Image
       run: |
         echo "Building image for project: ${PROJECT_ID}"
-        docker build -t us-west1-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} -f Dockerfile-producer .
-        docker push us-west1-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG}
+        docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} -f Dockerfile-producer .
+        docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG}
 
     - name: Deploy Infrastructure with Pulumi
       run: |
@@ -52,8 +62,8 @@ jobs:
     - name: Update Cloud Run Service
       run: |
         gcloud run services update gold-price-ingestion \
-          --image gcr.io/$PROJECT_ID/$IMAGE_PRODUCER:$IMAGE_TAG \
-          --region us-west1
+          --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} \
+          --region ${REGION}
 
     - name: Deploy Cloud Function
       run: |
