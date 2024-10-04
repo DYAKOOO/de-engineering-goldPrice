@@ -1,0 +1,5 @@
+config:
+  de-goldprice:project: de-goldprice
+  de-goldprice:region: us-west1
+  de-goldprice:zone: us-west1-a
+  gcp:project: de-goldprice
