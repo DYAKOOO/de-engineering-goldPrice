@@ -92,7 +92,7 @@ jobs:
           --region=${REGION} \
           --set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID} \
           --service-account=goldprice-service-account@de-goldprice.iam.gserviceaccount.com \
-          
+    
     - name: Trigger Cloud Run Service
       run: |
         CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${REGION} --format='value(status.url)')
