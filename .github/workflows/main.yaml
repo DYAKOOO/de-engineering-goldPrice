@@ -76,7 +76,10 @@ jobs:
           --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} \
           --region ${REGION}
 
-
+    - name: Update dependencies
+      run: |
+        pip install -r requirements.txt --upgrade
+        
     - name: Deploy Cloud Function
       run: |
         gcloud functions deploy process_gold_price \
