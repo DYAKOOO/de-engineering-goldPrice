@@ -85,13 +85,13 @@ jobs:
       run: |
         gcloud functions deploy process_gold_price \
           --gen2 \
-          --runtime=python311 \
+          --runtime=python310 \
           --source=. \
           --region=${REGION} \
-          --set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID} \
-          --trigger-topic=gold-price
-          --service-account=goldprice-service-account@de-goldprice.iam.gserviceaccount.com \
-    
+          --entry-point=process_pubsub \
+          --trigger-http \
+          --allow-unauthenticated
+      
     - name: Trigger Cloud Run Service
       run: |
         CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${REGION} --format='value(status.url)')

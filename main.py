@@ -1,6 +1,7 @@
 from data_sources import fetch_gold_price, fetch_central_bank_data, fetch_mining_data, fetch_market_data
 from pubsub_producer import publish_to_pubsub
 from datetime import datetime
+from cloud_functions import process_pubsub
 
 def main():
     date_str = datetime.now().strftime('%Y%m%d')
@@ -23,3 +24,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    process_pubsub(None)
