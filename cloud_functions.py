@@ -34,6 +34,8 @@ def process_pubsub(event, context):
     
     except Exception as e:
         logging.error(f"Error processing message: {str(e)}")
+    
+    return 'Ok' , 200
 
 def main():
     project_id = os.getenv('PROJECT_ID')
