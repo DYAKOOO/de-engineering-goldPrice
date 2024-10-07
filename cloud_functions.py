@@ -1,10 +1,13 @@
+import os
 import base64
 import json
 from google.cloud import bigquery
 from google.cloud import storage
+from google.cloud import pubsub_v1
 import logging
 
-#used with github workflows. 
+logging.basicConfig(level=logging.INFO)
+
 def process_pubsub(event, context):
     pubsub_message = base64.b64decode(event['data']).decode('utf-8')
     logging.info(f"Received message: {pubsub_message}")
@@ -21,7 +24,7 @@ def process_pubsub(event, context):
         
         # Insert data into BigQuery
         client = bigquery.Client()
-        table_id = "de-goldprice.gold_price_dataset.gold_prices"
+        table_id = f"{os.getenv('PROJECT_ID')}.{os.getenv('BIGQUERY_DATASET')}.{os.getenv('BIGQUERY_TABLE')}"
 
         errors = client.insert_rows_json(table_id, [message_data])
         if errors == []:
@@ -45,6 +48,7 @@ def main():
     # Publish to Pub/Sub
     future = publisher.publish(topic_path, json.dumps(data).encode('utf-8'))
     message_id = future.result()
+    logging.info(f"Published message with ID: {message_id}")
 
     # Process the data
     process_pubsub({'data': base64.b64encode(json.dumps(data).encode('utf-8'))}, None)

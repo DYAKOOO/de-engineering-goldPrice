@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    - cron: '0 0 * * *'  # Runs at 00:00 UTC every day
+    - cron: '0 0 * * *' # Runs at 00:00 UTC every day
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -18,7 +18,6 @@ jobs:
   deploy:
     name: Deploy to GCP
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -26,7 +25,7 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v2
       with:
-        go-version: '1.21'  # Specify the Go version you're using
+        go-version: '1.21'
 
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
@@ -52,7 +51,7 @@ jobs:
             --location=${REGION} \
             --description="Gold Price Analysis Docker Repository"
         fi
-      
+
     - name: Build and Push Producer Image
       run: |
         docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} -f Dockerfile-producer .
@@ -71,12 +70,12 @@ jobs:
       env:
         PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
 
-
     - name: Update Cloud Run Service
       run: |
         gcloud run services update gold-price-ingestion \
           --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} \
           --region ${REGION}
+
 
     - name: Deploy Cloud Function
       run: |
@@ -87,7 +86,7 @@ jobs:
           --entry-point=process_pubsub \
           --source=. \
           --region=${REGION} \
-          --set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
+          --set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID} \
           --service-account=goldprice-service-account@de-goldprice.iam.gserviceaccount.com
 
     - name: Trigger Cloud Run Service
