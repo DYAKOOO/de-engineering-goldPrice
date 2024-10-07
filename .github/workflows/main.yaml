@@ -86,11 +86,10 @@ jobs:
         gcloud functions deploy process_gold_price \
           --gen2 \
           --runtime=python311 \
-          --trigger-topic=gold-price \
-          --entry-point=process_pubsub \
           --source=. \
           --region=${REGION} \
           --set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID} \
+          --trigger-topic=gold-price
           --service-account=goldprice-service-account@de-goldprice.iam.gserviceaccount.com \
     
     - name: Trigger Cloud Run Service
