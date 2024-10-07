@@ -30,36 +30,33 @@ jobs:
 
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ env.PROJECT_ID }}
 
     - name: Configure Docker
       run: |
         gcloud auth configure-docker ${REGION}-docker.pkg.dev
-        echo "PROJECT_ID=${PROJECT_ID}"
 
     - name: Create Artifact Registry Repository
       run: |
         if ! gcloud artifacts repositories describe gold-price-repo \
           --location=${REGION} \
           --format="value(name)" 2>/dev/null; then
-          echo "Repository does not exist. Creating it now."
           gcloud artifacts repositories create gold-price-repo \
             --repository-format=docker \
             --location=${REGION} \
-            --description="Gold Price Analysis Docker Repository" \
-            --quiet
-        else
-          echo "Repository already exists. Skipping creation."
+            --description="Gold Price Analysis Docker Repository"
         fi
       
     - name: Build and Push Producer Image
       run: |
-        echo "Building image for project: ${PROJECT_ID}"
         docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} -f Dockerfile-producer .
         docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG}
 
     - name: Deploy Infrastructure with Pulumi
       run: |
         cd infrastructure
+        npm install
         pulumi stack select dev
         pulumi config set gcp:project $PROJECT_ID
         pulumi up --yes
@@ -80,22 +77,21 @@ jobs:
           --trigger-topic=gold-price \
           --entry-point=process_pubsub \
           --source=. \
-          --region=us-west1 \
-          --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
-          --verbosity=debug
+          --region=${REGION} \
+          --set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
 
     - name: Trigger Cloud Run Service
       run: |
-        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region us-west1 --format='value(status.url)')
-        curl -X GET $CLOUD_RUN_URL/fetch-and-publish
+        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${REGION} --format='value(status.url)')
+        curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
 
     - name: Trigger Dataproc Workflow
       run: |
         gcloud dataproc workflow-templates instantiate gold-price-analysis \
-          --region us-west1
+          --region ${REGION}
 
     - name: Verify Deployment
       run: |
-        gcloud run services describe gold-price-ingestion --region us-west1 --format='value(status.url)'
-        gcloud functions describe process_gold_price --region us-west1
-        gcloud dataproc workflow-templates describe gold-price-analysis --region us-west1
+        gcloud run services describe gold-price-ingestion --region ${REGION}
+        gcloud functions describe process_gold_price --region ${REGION}
+        gcloud dataproc workflow-templates describe gold-price-analysis --region ${REGION}
