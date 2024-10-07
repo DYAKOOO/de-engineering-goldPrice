@@ -2,7 +2,7 @@ name: Process Gold Price Data
 
 on:
   schedule:
-    - cron: '0 */1 * * *'  # Runs every hour
+    - cron: '0 */12 * * *'  # Runs everys 12 hours
   workflow_dispatch:  # Allows manual triggering
 
 jobs:
