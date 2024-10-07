@@ -5,9 +5,11 @@ from google.cloud import bigquery
 from google.cloud import storage
 from google.cloud import pubsub_v1
 import logging
+import functions_framework
 
 logging.basicConfig(level=logging.INFO)
 
+@functions_framework.cloud_event
 def process_pubsub(event, context):
     pubsub_message = base64.b64decode(event['data']).decode('utf-8')
     logging.info(f"Received message: {pubsub_message}")
