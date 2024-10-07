@@ -23,6 +23,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
 
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.21'  # Specify the Go version you're using
+
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
       with:
@@ -53,15 +58,19 @@ jobs:
         docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} -f Dockerfile-producer .
         docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG}
 
+    - name: Install Pulumi CLI
+      uses: pulumi/setup-pulumi@v2
+
     - name: Deploy Infrastructure with Pulumi
       run: |
         cd infrastructure
-        npm install
+        go mod download
         pulumi stack select dev
         pulumi config set gcp:project $PROJECT_ID
         pulumi up --yes
       env:
         PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
 
     - name: Update Cloud Run Service
       run: |
