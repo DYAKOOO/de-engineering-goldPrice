@@ -80,7 +80,6 @@ jobs:
       run: |
         pip install -r requirements.txt --upgrade
 
-
     - name: Deploy Cloud Function
       run: |
         gcloud functions deploy process_gold_price \
@@ -91,19 +90,38 @@ jobs:
           --entry-point=process_pubsub \
           --trigger-http \
           --allow-unauthenticated
-      
+
     - name: Trigger Cloud Run Service
       run: |
         CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${REGION} --format='value(status.url)')
         curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
 
-    - name: Trigger Dataproc Workflow
+    - name: Setup Spark Instance
       run: |
-        gcloud dataproc workflow-templates instantiate gold-price-analysis \
-          --region ${REGION}
+        gcloud compute ssh spark-instance --zone us-west1-a --command "
+        sudo apt-get update
+        sudo apt-get install -y python3-pip
+        pip3 install pyspark google-cloud-storage google-cloud-bigquery
+        "
+
+    - name: Copy Spark scripts to Compute Engine
+      run: |
+        gcloud compute scp spark_jobs/clean_transform.py spark-instance:~/clean_transform.py --zone us-west1-a
+        gcloud compute scp spark_jobs/load_to_bigquery.py spark-instance:~/load_to_bigquery.py --zone us-west1-a
+
+    - name: Run Spark Jobs
+      run: |
+        gcloud compute ssh spark-instance --zone us-west1-a --command "
+        spark-submit \
+        --master local[*] \
+        clean_transform.py && \
+        spark-submit \
+        --master local[*] \
+        load_to_bigquery.py
+        "
 
     - name: Verify Deployment
       run: |
         gcloud run services describe gold-price-ingestion --region ${REGION}
         gcloud functions describe process_gold_price --region ${REGION}
-        gcloud dataproc workflow-templates describe gold-price-analysis --region ${REGION}
+        gcloud compute instances describe spark-instance --zone us-west1-a

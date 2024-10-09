@@ -1,15 +1,16 @@
 package main
 
 import (
-	"fmt"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/bigquery"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/pubsub"
-	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/dataproc"
+	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/compute"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/cloudrun"
+	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/storage"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/monitoring"
 )
+
 
 func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
@@ -28,85 +29,84 @@ func main() {
 			zone = "us-west1-a"
 		}
 
+		// Import existing buckets
+		rawDataBucket, err := storage.NewBucket(ctx, "gold-price-raw-data", &storage.BucketArgs{
+			Name:     pulumi.String("gold-price-raw-data"),
+			Location: pulumi.String("US"),
+			Project:  pulumi.String(project),
+		}, pulumi.Import(pulumi.ID("gold-price-raw-data")))
+		if err != nil {
+			return err
+		}
+
+		processedDataBucket, err := storage.NewBucket(ctx, "gold-price-processed-data", &storage.BucketArgs{
+			Name:     pulumi.String("gold-price-processed-data"),
+			Location: pulumi.String("US"),
+			Project:  pulumi.String(project),
+		}, pulumi.Import(pulumi.ID("gold-price-processed-data")))
+		if err != nil {
+			return err
+		}
+
+		codeBucket, err := storage.NewBucket(ctx, "de-goldprice-code", &storage.BucketArgs{
+			Name:     pulumi.String("de-goldprice-code"),
+			Location: pulumi.String("US"),
+			Project:  pulumi.String(project),
+		}, pulumi.Import(pulumi.ID("de-goldprice-code")))
+		if err != nil {
+			return err
+		}
 		// Create Pub/Sub topic
 		topicName := "gold-price"
 		topic, err := pubsub.NewTopic(ctx, topicName, &pubsub.TopicArgs{
 			Name:    pulumi.String(topicName),
 			Project: pulumi.String(project),
-		}, pulumi.Import(pulumi.ID(fmt.Sprintf("projects/%s/topics/%s", project, topicName))))
-		if err != nil {
-			return err
-		}
-
-
-		// Create Pub/Sub subscription
-
-		_, err = pubsub.NewSubscription(ctx, "gold-price-subscription", &pubsub.SubscriptionArgs{
-			Name:    pulumi.String("gold-price-sub"),
-			Topic:   topic.Name,
-			Project: pulumi.String(project),
-		}, pulumi.Import(pulumi.ID(fmt.Sprintf("projects/%s/subscriptions/gold-price-sub", project))))
-		if err != nil {
-			return err
-		}
-
-		// Create Dataproc cluster with reduced size
-		dataprocCluster, err := dataproc.NewCluster(ctx, "spark-cluster", &dataproc.ClusterArgs{
-			Name:    pulumi.String("gold-price-analysis-cluster"),
-			Project: pulumi.String(project),
-			Region:  pulumi.String(region),
-			ClusterConfig: &dataproc.ClusterClusterConfigArgs{
-				WorkerConfig: &dataproc.ClusterClusterConfigWorkerConfigArgs{
-					NumInstances: pulumi.Int(2),
-					MachineType:  pulumi.String("e2-medium"),
-					DiskConfig: &dataproc.ClusterClusterConfigWorkerConfigDiskConfigArgs{
-						BootDiskSizeGb: pulumi.Int(30),
-					},
-				},
-				MasterConfig: &dataproc.ClusterClusterConfigMasterConfigArgs{
-					NumInstances: pulumi.Int(1),
-					MachineType:  pulumi.String("e2-medium"),
-					DiskConfig: &dataproc.ClusterClusterConfigMasterConfigDiskConfigArgs{
-						BootDiskSizeGb: pulumi.Int(30),
-					},
-				},
-				SoftwareConfig: &dataproc.ClusterClusterConfigSoftwareConfigArgs{
-					ImageVersion: pulumi.String("2.0-debian10"),
-				},
-			},
 		})
 		if err != nil {
 			return err
 		}
 
-		// Dataproc workflow template
-		_, err = dataproc.NewWorkflowTemplate(ctx, "gold-price-analysis", &dataproc.WorkflowTemplateArgs{
-			Project:  pulumi.String(project),
-			Location: pulumi.String(region),
-			Jobs: dataproc.WorkflowTemplateJobArray{
-				&dataproc.WorkflowTemplateJobArgs{
-					StepId: pulumi.String("clean_transform"),
-					PysparkJob: &dataproc.WorkflowTemplateJobPysparkJobArgs{
-						MainPythonFileUri: pulumi.String("gs://de-goldprice-code/spark_jobs/clean_transform.py"),
-					},
+		// Create Pub/Sub subscription
+		_, err = pubsub.NewSubscription(ctx, "gold-price-subscription", &pubsub.SubscriptionArgs{
+			Name:    pulumi.String("gold-price-sub"),
+			Topic:   topic.Name,
+			Project: pulumi.String(project),
+		})
+		if err != nil {
+			return err
+		}
+
+		// Create a Compute Engine instance for Spark
+		sparkInstance, err := compute.NewInstance(ctx, "spark-instance", &compute.InstanceArgs{
+			Name:        pulumi.String("spark-instance"),
+			MachineType: pulumi.String("n1-standard-4"),
+			Zone:        pulumi.String(zone),
+			BootDisk: &compute.InstanceBootDiskArgs{
+				InitializeParams: &compute.InstanceBootDiskInitializeParamsArgs{
+					Image: pulumi.String("ubuntu-os-cloud/ubuntu-2004-lts"),
 				},
-				&dataproc.WorkflowTemplateJobArgs{
-					StepId: pulumi.String("load_to_bigquery"),
-					PysparkJob: &dataproc.WorkflowTemplateJobPysparkJobArgs{
-						MainPythonFileUri: pulumi.String("gs://de-goldprice-code/spark_jobs/load_to_bigquery.py"),
+			},
+			NetworkInterfaces: compute.InstanceNetworkInterfaceArray{
+				&compute.InstanceNetworkInterfaceArgs{
+					Network: pulumi.String("default"),
+					AccessConfigs: compute.InstanceNetworkInterfaceAccessConfigArray{
+						&compute.InstanceNetworkInterfaceAccessConfigArgs{},
 					},
 				},
 			},
-			Placement: &dataproc.WorkflowTemplatePlacementArgs{
-				ManagedCluster: &dataproc.WorkflowTemplatePlacementManagedClusterArgs{
-					ClusterName: pulumi.String("gold-price-analysis-cluster"),
-					Config: &dataproc.WorkflowTemplatePlacementManagedClusterConfigArgs{
-						GceClusterConfig: &dataproc.WorkflowTemplatePlacementManagedClusterConfigGceClusterConfigArgs{
-							Zone:    pulumi.String(zone),
-							Network: pulumi.String("default"),
-						},
-					},
-				},
+			Metadata: pulumi.StringMap{
+				"startup-script": pulumi.String(`
+					#!/bin/bash
+					apt-get update
+					apt-get install -y openjdk-11-jdk
+					wget https://archive.apache.org/dist/spark/spark-3.1.2/spark-3.1.2-bin-hadoop3.2.tgz
+					tar xvf spark-3.1.2-bin-hadoop3.2.tgz
+					mv spark-3.1.2-bin-hadoop3.2 /opt/spark
+					echo "export PATH=$PATH:/opt/spark/bin" >> /etc/environment
+				`),
+			},
+			Tags: pulumi.StringArray{
+				pulumi.String("spark"),
 			},
 		})
 		if err != nil {
@@ -114,13 +114,12 @@ func main() {
 		}
 
 		// Create BigQuery dataset
-
 		datasetName := "gold_price_dataset"
 		dataset, err := bigquery.NewDataset(ctx, datasetName, &bigquery.DatasetArgs{
 			DatasetId: pulumi.String(datasetName),
 			Location:  pulumi.String("US"),
 			Project:   pulumi.String(project),
-		}, pulumi.Import(pulumi.ID(fmt.Sprintf("projects/%s/datasets/%s", project, datasetName))))
+		})
 		if err != nil {
 			return err
 		}
@@ -161,12 +160,11 @@ func main() {
 				Type:  pulumi.String("DAY"),
 				Field: pulumi.String("date"),
 			},
-		}, pulumi.Import(pulumi.ID(fmt.Sprintf("projects/%s/datasets/%s/tables/gold_prices", project, datasetName))))
-
+		})
 		if err != nil {
 			return err
 		}
-	
+
 		// Create a view for 30-day moving average
 		_, err = bigquery.NewTable(ctx, "gold_price_30day_avg", &bigquery.TableArgs{
 			DatasetId: dataset.DatasetId,
@@ -185,13 +183,12 @@ func main() {
 				`, project, dataset.DatasetId),
 				UseLegacySql: pulumi.Bool(false),
 			},
-		}, pulumi.Import(pulumi.ID(fmt.Sprintf("projects/%s/datasets/%s/tables/gold_price_30day_avg", project, datasetName))))
-		
+		})
 		if err != nil {
 			return err
 		}
 
-		// cloudrun new service
+		// Cloud Run service
 		_, err = cloudrun.NewService(ctx, "gold-price-ingestion", &cloudrun.ServiceArgs{
 			Location: pulumi.String(region),
 			Project:  pulumi.String(project),
@@ -228,20 +225,22 @@ func main() {
 				},
 			},
 		})
-
+		if err != nil {
+			return err
+		}
 
 		// Create a Cloud Monitoring alert policy
 		_, err = monitoring.NewAlertPolicy(ctx, "gold-price-alert", &monitoring.AlertPolicyArgs{
 			DisplayName: pulumi.String("Gold Price Service Alert"),
-			Combiner: pulumi.String("OR"),
+			Combiner:    pulumi.String("OR"),
 			Conditions: monitoring.AlertPolicyConditionArray{
 				&monitoring.AlertPolicyConditionArgs{
 					DisplayName: pulumi.String("High error rate"),
 					ConditionThreshold: &monitoring.AlertPolicyConditionConditionThresholdArgs{
-						Filter: pulumi.String("resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"gold-price-ingestion\" AND metric.type = \"run.googleapis.com/request_count\" AND metric.labels.response_code_class = \"5xx\""),
+						Filter:     pulumi.String("resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"gold-price-ingestion\" AND metric.type = \"run.googleapis.com/request_count\" AND metric.labels.response_code_class = \"5xx\""),
 						Duration:   pulumi.String("60s"),
 						Comparison: pulumi.String("COMPARISON_GT"),
-						ThresholdValue:  pulumi.Float64(5),
+						ThresholdValue: pulumi.Float64(5),
 						Aggregations: monitoring.AlertPolicyConditionConditionThresholdAggregationArray{
 							&monitoring.AlertPolicyConditionConditionThresholdAggregationArgs{
 								AlignmentPeriod:  pulumi.String("60s"),
@@ -256,15 +255,14 @@ func main() {
 			return err
 		}
 
-		
-
-
 		// Export resources
 		ctx.Export("pubsubTopic", topic.Name)
-		ctx.Export("dataprocClusterName", dataprocCluster.Name)
-		ctx.Export("dataprocClusterRegion", dataprocCluster.Region)
+		ctx.Export("sparkInstanceName", sparkInstance.Name)
+		ctx.Export("sparkInstanceIP", sparkInstance.NetworkInterfaces.Index(pulumi.Int(0)).AccessConfigs().Index(pulumi.Int(0)).NatIp())
 		ctx.Export("bigQueryTableId", table.ID())
-
+		ctx.Export("rawDataBucketName", rawDataBucket.Name)
+		ctx.Export("processedDataBucketName", processedDataBucket.Name)
+		ctx.Export("codeBucketName", codeBucket.Name)
 
 		return nil
 	})
