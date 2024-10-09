@@ -49,18 +49,6 @@ jobs:
       run: |
         gcloud auth configure-docker gcr.io
 
-    - name: Create version increment script
-      run: |
-        cat << EOF > version_increment.sh
-        #!/bin/bash
-        LATEST_VERSION=\$(gcloud container images list-tags gcr.io/${PROJECT_ID}/gold-price-producer --format='get(tags)' --sort-by=~tags | grep '^v1\.0\.' | head -n 1)
-        PATCH_VERSION=\$(echo \$LATEST_VERSION | cut -d. -f3)
-        NEW_PATCH_VERSION=\$((PATCH_VERSION + 1))
-        NEW_VERSION="v1.0.\$NEW_PATCH_VERSION"
-        echo \$NEW_VERSION
-        EOF
-        chmod +x version_increment.sh
-
     - name: Build and Push New Version
       id: build_version
       run: |
@@ -85,7 +73,23 @@ jobs:
           --region ${{ env.REGION }} \
           --source . \
           --entry-point process_pubsub \
-          --trigger-topic gold-price
+          --trigger-http \
+          --allow-unauthenticated
+
+    - name: Copy Spark scripts to Compute Engine
+      run: |
+        gcloud compute scp spark_jobs/* spark-instance:~/ --zone us-west1-a
+
+    - name: Run Spark Jobs
+      run: |
+        gcloud compute ssh spark-instance --zone us-west1-a --command "
+        spark-submit \
+        --master local[*] \
+        clean_transform.py && \
+        spark-submit \
+        --master local[*] \
+        load_to_bigquery.py
+        "
 
     - name: Trigger Cloud Run Service
       run: |
@@ -96,6 +100,14 @@ jobs:
       run: |
         gcloud run services describe gold-price-ingestion --region ${{ env.REGION }}
         gcloud functions describe process_gold_price --region ${{ env.REGION }}
+
+    - name: Verify BigQuery Data
+      run: |
+        bq query --use_legacy_sql=false '
+        SELECT COUNT(*) as row_count
+        FROM `de-goldprice.gold_price_dataset.gold_prices`
+        WHERE DATE(date) = DATE(CURRENT_TIMESTAMP())
+        '
 
     - name: Clean up old images
       run: |
