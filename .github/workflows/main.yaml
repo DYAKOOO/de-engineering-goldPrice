@@ -100,8 +100,9 @@ jobs:
       run: |
         gcloud compute ssh spark-instance --zone us-west1-a --command "
         sudo apt-get update
-        sudo apt-get install -y python3-pip
+        sudo apt-get install -y python3-pip openjdk-11-jdk
         pip3 install pyspark google-cloud-storage google-cloud-bigquery
+        wget https://storage.googleapis.com/hadoop-lib/gcs/gcs-connector-hadoop3-latest.jar -P /home/runner/
         "
 
     - name: Copy Spark scripts to Compute Engine
@@ -112,14 +113,24 @@ jobs:
     - name: Run Spark Jobs
       run: |
         gcloud compute ssh spark-instance --zone us-west1-a --command "
+        export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
         spark-submit \
         --master local[*] \
+        --jars /home/runner/gcs-connector-hadoop3-latest.jar \
+        --conf spark.hadoop.google.cloud.auth.service.account.enable=true \
+        --conf spark.hadoop.google.cloud.auth.service.account.json.keyfile=/path/to/your/service-account-key.json \
+        --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
+        --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
         clean_transform.py && \
         spark-submit \
         --master local[*] \
+        --jars /home/runner/gcs-connector-hadoop3-latest.jar \
+        --conf spark.hadoop.google.cloud.auth.service.account.enable=true \
+        --conf spark.hadoop.google.cloud.auth.service.account.json.keyfile=/path/to/your/service-account-key.json \
+        --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
+        --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
         load_to_bigquery.py
         "
-
     - name: Verify Deployment
       run: |
         gcloud run services describe gold-price-ingestion --region ${REGION}
