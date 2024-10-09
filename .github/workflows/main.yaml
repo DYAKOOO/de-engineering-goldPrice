@@ -80,10 +80,21 @@ jobs:
         docker build -t gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
         docker push gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION
 
+    - name: Check repository contents
+      run: |
+        echo "Current directory contents:"
+        ls -R
+        echo "Searching for Python files:"
+        find . -name "*.py"
+
     - name: Upload code to GCS
       run: |
-        gsutil cp clean_transform.py gs://de-goldprice-code/
-        gsutil cp load_to_bigquery.py gs://de-goldprice-code/
+        echo "Attempting to upload clean_transform.py"
+        find . -name "clean_transform.py" -exec gsutil cp {} gs://de-goldprice-code/ \;
+        echo "Attempting to upload load_to_bigquery.py"
+        find . -name "load_to_bigquery.py" -exec gsutil cp {} gs://de-goldprice-code/ \;
+        echo "Listing contents of GCS bucket:"
+        gsutil ls gs://de-goldprice-code/
 
     - name: Deploy to Cloud Run
       env:
