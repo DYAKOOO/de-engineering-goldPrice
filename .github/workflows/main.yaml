@@ -99,9 +99,11 @@ jobs:
 
 
     
-    - name: Copy Service Account Key
+    - name: Setup Service Account Key
       run: |
-        gcloud compute scp deployment/de-goldprice-024f0b706b39.json spark-instance:/home/runner/sa-key.json --zone us-west1-a
+        echo '${{ secrets.GCP_SA_KEY }}' > /tmp/sa-key.json
+        gcloud compute scp /tmp/sa-key.json spark-instance:/home/runner/sa-key.json --zone us-west1-a
+        rm /tmp/sa-key.json
 
     - name: Setup Spark Instance
       run: |
