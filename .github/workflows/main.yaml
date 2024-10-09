@@ -86,20 +86,19 @@ jobs:
           --trigger-http \
           --allow-unauthenticated
 
-    - name: Copy Service Account Key to Compute Engine
+
+
+    - name: Check Service Account Key
       run: |
-        echo "${{ secrets.GCP_SA_KEY }}" > sa-key.json
-        gcloud compute scp sa-key.json spark-instance:~/ --zone us-west1-a
+        echo "Checking service account key format..."
+        jq . sa-key.json
 
     - name: Check GCS Bucket Contents
       run: |
+        echo "Listing GCS bucket contents..."
         gsutil ls gs://gold-price-raw-data/
-        gsutil cat gs://gold-price-raw-data/*.json | head -n 10
-
-
-    - name: Copy Spark scripts to Compute Engine
-      run: |
-        gcloud compute scp spark_jobs/* spark-instance:~/ --zone us-west1-a
+        echo "Displaying sample content of a JSON file..."
+        gsutil cat gs://gold-price-raw-data/*.json | head -n 5
 
     - name: Run Spark Jobs
       run: |
@@ -111,8 +110,8 @@ jobs:
         ls -la
         echo 'Checking Python version...'
         python3 --version
-        echo 'Downloading GCS connector...'
-        wget https://storage.googleapis.com/hadoop-lib/gcs/gcs-connector-hadoop3-latest.jar
+        echo 'Checking service account key...'
+        cat sa-key.json
         echo 'Running Spark jobs...'
         spark-submit \
         --master local[*] \
@@ -121,18 +120,11 @@ jobs:
         --conf spark.hadoop.fs.gs.auth.service.account.enable=true \
         --conf spark.hadoop.fs.gs.auth.service.account.json.keyfile=/home/runner/sa-key.json \
         --jars gcs-connector-hadoop3-latest.jar \
-        clean_transform.py && \
-        spark-submit \
-        --master local[*] \
-        --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
-        --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
-        --conf spark.hadoop.fs.gs.auth.service.account.enable=true \
-        --conf spark.hadoop.fs.gs.auth.service.account.json.keyfile=/home/runner/sa-key.json \
-        --jars gcs-connector-hadoop3-latest.jar \
-        load_to_bigquery.py
+        clean_transform.py
         "
       env:
         CLOUDSDK_COMPUTE_ZONE: us-west1-a
+
 
 
     - name: Trigger Cloud Run Service
