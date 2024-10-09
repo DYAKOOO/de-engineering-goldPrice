@@ -1,10 +1,11 @@
 import os
 import logging
 from flask import Flask, jsonify
-from google.cloud import pubsub_v1
+from google.cloud import pubsub_v1, storage
 import json
 from datetime import datetime
 import requests
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -63,23 +64,15 @@ def write_to_gcs(data):
     blob = bucket.blob(f'gold_price_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
     blob.upload_from_string(json.dumps(data))
     logger.info(f"Data written to GCS: {blob.name}")
-    
+
 @app.route('/fetch-and-publish')
 def fetch_and_publish():
-    data = {...}  # The fetched data
-
-    # Write to GCS
-    client = storage.Client()
-    bucket = client.bucket('gold-price-raw-data')
-    blob = bucket.blob(f'gold_price_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
-    blob.upload_from_string(json.dumps(data))
-
-
     try:
         date_str = datetime.now().strftime('%Y-%m-%d')
         price_data = fetch_gold_price(date_str)
         if price_data:
             if publish_to_pubsub(price_data):
+                write_to_gcs(price_data)  # Write to GCS after successful Pub/Sub publish
                 return jsonify({"status": "success", "data": price_data}), 200
             else:
                 return jsonify({"status": "error", "message": "Failed to publish to Pub/Sub"}), 500
@@ -88,8 +81,6 @@ def fetch_and_publish():
     except Exception as e:
         logger.exception(f"An error occurred: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-    
-    return jsonify({"status": "success", "data": data})
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
