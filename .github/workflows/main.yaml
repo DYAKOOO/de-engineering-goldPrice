@@ -10,8 +10,6 @@ on:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  IMAGE_PRODUCER: gold-price-producer
-  IMAGE_TAG: ${{ github.sha }}
   REGION: us-west1
 
 jobs:
@@ -19,13 +17,23 @@ jobs:
     name: Deploy to GCP
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v2
 
     - name: Setup Go
       uses: actions/setup-go@v2
       with:
         go-version: '1.21'
+
+    - name: Setup Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
@@ -39,110 +47,59 @@ jobs:
 
     - name: Configure Docker
       run: |
-        gcloud auth configure-docker ${REGION}-docker.pkg.dev
+        gcloud auth configure-docker gcr.io
 
-    - name: Create Artifact Registry Repository
+    - name: Create version increment script
       run: |
-        if ! gcloud artifacts repositories describe gold-price-repo \
-          --location=${REGION} \
-          --format="value(name)" 2>/dev/null; then
-          gcloud artifacts repositories create gold-price-repo \
-            --repository-format=docker \
-            --location=${REGION} \
-            --description="Gold Price Analysis Docker Repository"
-        fi
+        cat << EOF > version_increment.sh
+        #!/bin/bash
+        LATEST_VERSION=\$(gcloud container images list-tags gcr.io/${PROJECT_ID}/gold-price-producer --format='get(tags)' --sort-by=~tags | grep '^v1\.0\.' | head -n 1)
+        PATCH_VERSION=\$(echo \$LATEST_VERSION | cut -d. -f3)
+        NEW_PATCH_VERSION=\$((PATCH_VERSION + 1))
+        NEW_VERSION="v1.0.\$NEW_PATCH_VERSION"
+        echo \$NEW_VERSION
+        EOF
+        chmod +x version_increment.sh
 
-    - name: Build and Push Producer Image
+    - name: Build and Push New Version
+      id: build_version
       run: |
-        docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} -f Dockerfile-producer .
-        docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG}
+        NEW_VERSION=$(./version_increment.sh)
+        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+        docker build -t gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
+        docker push gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION
 
-    - name: Install Pulumi CLI
-      uses: pulumi/setup-pulumi@v2
-
-    - name: Deploy Infrastructure with Pulumi
+    - name: Deploy to Cloud Run
       run: |
-        cd infrastructure
-        go mod download
-        pulumi stack select dev
-        pulumi config set gcp:project $PROJECT_ID
-        pulumi up --yes
-      env:
-        PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        gcloud run deploy gold-price-ingestion \
+          --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:${{ steps.build_version.outputs.NEW_VERSION }} \
+          --region ${{ env.REGION }} \
+          --set-env-vars GCS_BUCKET=gold-price-raw-data \
+          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
 
-    - name: Update Cloud Run Service
-      run: |
-        gcloud run services update gold-price-ingestion \
-          --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/gold-price-repo/${IMAGE_PRODUCER}:${IMAGE_TAG} \
-          --region ${REGION}
-
-    - name: Update dependencies
-      run: |
-        pip install -r requirements.txt --upgrade
-
-    - name: Deploy Cloud Function
+    - name: Update Cloud Function
       run: |
         gcloud functions deploy process_gold_price \
           --gen2 \
-          --runtime=python310 \
-          --source=. \
-          --region=${REGION} \
-          --entry-point=process_pubsub \
-          --trigger-http \
-          --allow-unauthenticated
+          --runtime python310 \
+          --region ${{ env.REGION }} \
+          --source . \
+          --entry-point process_pubsub \
+          --trigger-topic gold-price
 
     - name: Trigger Cloud Run Service
       run: |
-        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${REGION} --format='value(status.url)')
+        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format='value(status.url)')
         curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
-
-
-
-    
-    - name: Setup Service Account Key
-      run: |
-        echo '${{ secrets.GCP_SA_KEY }}' > /tmp/sa-key.json
-        gcloud compute scp /tmp/sa-key.json spark-instance:/home/runner/sa-key.json --zone us-west1-a
-        rm /tmp/sa-key.json
-
-    - name: Setup Spark Instance
-      run: |
-        gcloud compute ssh spark-instance --zone us-west1-a --command "
-        sudo apt-get update
-        sudo apt-get install -y python3-pip openjdk-11-jdk
-        pip3 install pyspark google-cloud-storage google-cloud-bigquery
-        wget https://storage.googleapis.com/hadoop-lib/gcs/gcs-connector-hadoop3-latest.jar -P /home/runner/
-        "
-
-    - name: Copy Spark scripts to Compute Engine
-      run: |
-        gcloud compute scp spark_jobs/clean_transform.py spark-instance:/home/runner/clean_transform.py --zone us-west1-a
-        gcloud compute scp spark_jobs/load_to_bigquery.py spark-instance:/home/runner/load_to_bigquery.py --zone us-west1-a
-
-    - name: Run Spark Jobs
-      run: |
-        gcloud compute ssh spark-instance --zone us-west1-a --command "
-        export GOOGLE_APPLICATION_CREDENTIALS=/home/runner/sa-key.json
-        spark-submit \
-        --master local[*] \
-        --jars /home/runner/gcs-connector-hadoop3-latest.jar \
-        --conf spark.hadoop.google.cloud.auth.service.account.enable=true \
-        --conf spark.hadoop.google.cloud.auth.service.account.json.keyfile=/home/runner/sa-key.json \
-        --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
-        --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
-        /home/runner/clean_transform.py && \
-        spark-submit \
-        --master local[*] \
-        --jars /home/runner/gcs-connector-hadoop3-latest.jar \
-        --conf spark.hadoop.google.cloud.auth.service.account.enable=true \
-        --conf spark.hadoop.google.cloud.auth.service.account.json.keyfile=/home/runner/sa-key.json \
-        --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
-        --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
-        /home/runner/load_to_bigquery.py
-        "
 
     - name: Verify Deployment
       run: |
-        gcloud run services describe gold-price-ingestion --region ${REGION}
-        gcloud functions describe process_gold_price --region ${REGION}
-        gcloud compute instances describe spark-instance --zone us-west1-a
+        gcloud run services describe gold-price-ingestion --region ${{ env.REGION }}
+        gcloud functions describe process_gold_price --region ${{ env.REGION }}
+
+    - name: Clean up old images
+      run: |
+        OLD_VERSIONS=$(gcloud container images list-tags gcr.io/${{ env.PROJECT_ID }}/gold-price-producer --format='get(tags)' --sort-by=~tags | tail -n +6)
+        for version in $OLD_VERSIONS; do
+          gcloud container images delete gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$version --quiet
+        done

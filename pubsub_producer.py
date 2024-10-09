@@ -17,6 +17,8 @@ BASE_URL = os.environ.get('GOLD_API_BASE_URL', 'https://www.goldapi.io/api')
 GOLD_API_KEY = os.environ.get('GOLD_API_KEY')
 PROJECT_ID = os.environ.get('GOOGLE_CLOUD_PROJECT')
 PUBSUB_TOPIC = os.environ.get('PUBSUB_TOPIC', 'gold-price')
+GCS_BUCKET = os.environ.get('GCS_BUCKET', 'gold-price-raw-data')
+
 
 def fetch_gold_price(date):
     url = f"{BASE_URL}/XAU/USD"
@@ -54,8 +56,25 @@ def publish_to_pubsub(data):
         logger.error(f"Error publishing to Pub/Sub: {str(e)}")
         return False
 
+
+def write_to_gcs(data):
+    client = storage.Client()
+    bucket = client.bucket(GCS_BUCKET)
+    blob = bucket.blob(f'gold_price_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+    blob.upload_from_string(json.dumps(data))
+    logger.info(f"Data written to GCS: {blob.name}")
+    
 @app.route('/fetch-and-publish')
 def fetch_and_publish():
+    data = {...}  # The fetched data
+
+    # Write to GCS
+    client = storage.Client()
+    bucket = client.bucket('gold-price-raw-data')
+    blob = bucket.blob(f'gold_price_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+    blob.upload_from_string(json.dumps(data))
+
+
     try:
         date_str = datetime.now().strftime('%Y-%m-%d')
         price_data = fetch_gold_price(date_str)
@@ -69,6 +88,8 @@ def fetch_and_publish():
     except Exception as e:
         logger.exception(f"An error occurred: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
+    
+    return jsonify({"status": "success", "data": data})
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
