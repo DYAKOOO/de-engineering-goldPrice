@@ -96,6 +96,12 @@ jobs:
         CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${REGION} --format='value(status.url)')
         curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
 
+    - name: Copy Service Account Key
+      run: |
+        echo "${{ secrets.GCP_SA_KEY }}" > /tmp/sa-key.json
+        gcloud compute scp /tmp/sa-key.json spark-instance:~/sa-key.json --zone us-west1-a
+        rm /tmp/sa-key.json
+
     - name: Setup Spark Instance
       run: |
         gcloud compute ssh spark-instance --zone us-west1-a --command "
@@ -113,12 +119,12 @@ jobs:
     - name: Run Spark Jobs
       run: |
         gcloud compute ssh spark-instance --zone us-west1-a --command "
-        export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
+        export GOOGLE_APPLICATION_CREDENTIALS=~/sa-key.json
         spark-submit \
         --master local[*] \
         --jars /home/runner/gcs-connector-hadoop3-latest.jar \
         --conf spark.hadoop.google.cloud.auth.service.account.enable=true \
-        --conf spark.hadoop.google.cloud.auth.service.account.json.keyfile=/path/to/your/service-account-key.json \
+        --conf spark.hadoop.google.cloud.auth.service.account.json.keyfile=~/sa-key.json \
         --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
         --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
         clean_transform.py && \
@@ -126,11 +132,12 @@ jobs:
         --master local[*] \
         --jars /home/runner/gcs-connector-hadoop3-latest.jar \
         --conf spark.hadoop.google.cloud.auth.service.account.enable=true \
-        --conf spark.hadoop.google.cloud.auth.service.account.json.keyfile=/path/to/your/service-account-key.json \
+        --conf spark.hadoop.google.cloud.auth.service.account.json.keyfile=~/sa-key.json \
         --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
         --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
         load_to_bigquery.py
         "
+
     - name: Verify Deployment
       run: |
         gcloud run services describe gold-price-ingestion --region ${REGION}
