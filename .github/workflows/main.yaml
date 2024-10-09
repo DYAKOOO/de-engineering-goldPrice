@@ -93,6 +93,14 @@ jobs:
     - name: Run Spark Jobs
       run: |
         gcloud compute ssh spark-instance --zone us-west1-a --command "
+        set -e
+        echo 'Checking Spark installation...'
+        which spark-submit || echo 'Spark is not installed or not in PATH'
+        echo 'Listing contents of home directory...'
+        ls -la
+        echo 'Checking Python version...'
+        python3 --version
+        echo 'Running Spark jobs...'
         spark-submit \
         --master local[*] \
         clean_transform.py && \
@@ -100,6 +108,8 @@ jobs:
         --master local[*] \
         load_to_bigquery.py
         "
+      env:
+        CLOUDSDK_COMPUTE_ZONE: us-west1-a
 
     - name: Trigger Cloud Run Service
       run: |
