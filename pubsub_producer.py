@@ -31,7 +31,7 @@ def fetch_gold_price(date):
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
- 
+        logger.info(f"Received data: {data}")
         return {
             'date': date,
             'price': data.get('price'),

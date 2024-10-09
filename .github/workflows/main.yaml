@@ -132,12 +132,20 @@ jobs:
     - name: Copy Service Account Key to Compute Engine
       run: |
         gcloud compute scp sa-key.json spark-instance:~/ --zone us-west1-a
+    
+    - name: Verify GCS Access
+      run: |
+        echo "Verifying GCS access..."
+        gsutil ls gs://de-goldprice-code/
+        gsutil ls gs://gold-price-raw-data/
+        gsutil ls gs://gold-price-processed-data/
 
     - name: Run Spark Jobs
       run: |
         gcloud compute ssh spark-instance --zone us-west1-a --command "
         set -e
         echo 'Downloading code from GCS...'
+        gcloud auth activate-service-account --key-file=/home/runner/sa-key.json
         gsutil cp gs://de-goldprice-code/*.py .
         echo 'Running Spark jobs...'
         spark-submit \
