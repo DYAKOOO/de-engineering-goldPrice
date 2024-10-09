@@ -35,6 +35,21 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Create Service Account Key File
+      run: |
+        echo '${{ secrets.GCP_SA_KEY }}' > sa-key.json
+        chmod 600 sa-key.json
+
+    - name: Check Service Account Key
+      run: |
+        echo "Checking service account key format..."
+        if [ -f sa-key.json ]; then
+          jq . sa-key.json
+        else
+          echo "sa-key.json file not found"
+          ls -la
+        fi
+
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
       with:
@@ -86,19 +101,16 @@ jobs:
           --trigger-http \
           --allow-unauthenticated
 
-
-
-    - name: Check Service Account Key
-      run: |
-        echo "Checking service account key format..."
-        jq . sa-key.json
-
     - name: Check GCS Bucket Contents
       run: |
         echo "Listing GCS bucket contents..."
         gsutil ls gs://gold-price-raw-data/
         echo "Displaying sample content of a JSON file..."
         gsutil cat gs://gold-price-raw-data/*.json | head -n 5
+
+    - name: Copy Service Account Key to Compute Engine
+      run: |
+        gcloud compute scp sa-key.json spark-instance:~/ --zone us-west1-a
 
     - name: Run Spark Jobs
       run: |
@@ -124,8 +136,6 @@ jobs:
         "
       env:
         CLOUDSDK_COMPUTE_ZONE: us-west1-a
-
-
 
     - name: Trigger Cloud Run Service
       run: |
