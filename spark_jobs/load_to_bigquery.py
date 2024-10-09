@@ -3,7 +3,13 @@ from pyspark.sql.functions import col, to_date
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType
 
 def main():
-    spark = SparkSession.builder.appName("GoldPriceLoadToBigQuery").getOrCreate()
+    
+    spark = SparkSession.builder.appName("GoldPriceCleanTransform").getOrCreate()
+    
+    # Set GCS configuration
+    spark._jsc.hadoopConfiguration().set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+    spark._jsc.hadoopConfiguration().set("fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+    
 
     schema = StructType([
         StructField("date", StringType(), True),
