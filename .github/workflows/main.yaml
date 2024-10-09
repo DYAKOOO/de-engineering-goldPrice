@@ -114,7 +114,7 @@ jobs:
 
     - name: Check Cloud Run Logs
       run: |
-        gcloud run logs read --service gold-price-ingestion --region ${{ env.REGION }} --limit 50
+        gcloud run service logs read  gold-price-ingestion --region ${{ env.REGION }} --limit 50
 
     - name: Update Cloud Function
       run: |
