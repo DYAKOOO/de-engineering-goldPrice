@@ -49,18 +49,28 @@ jobs:
       run: |
         gcloud auth configure-docker gcr.io
 
-    - name: Build and Push New Version
-      id: build_version
+    - name: Get latest version and increment
+      id: get_version
       run: |
-        NEW_VERSION=$(./version_increment.sh)
+        LATEST_VERSION=$(gcloud container images list-tags gcr.io/${{ env.PROJECT_ID }}/gold-price-producer --format='get(tags)' --sort-by=~tags | grep '^v1\.0\.' | head -n 1)
+        PATCH_VERSION=$(echo $LATEST_VERSION | cut -d. -f3)
+        NEW_PATCH_VERSION=$((PATCH_VERSION + 1))
+        NEW_VERSION="v1.0.$NEW_PATCH_VERSION"
         echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+    - name: Build and Push New Version
+      env:
+        NEW_VERSION: ${{ steps.get_version.outputs.NEW_VERSION }}
+      run: |
         docker build -t gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
         docker push gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION
 
     - name: Deploy to Cloud Run
+      env:
+        NEW_VERSION: ${{ steps.get_version.outputs.NEW_VERSION }}
       run: |
         gcloud run deploy gold-price-ingestion \
-          --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:${{ steps.build_version.outputs.NEW_VERSION }} \
+          --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION \
           --region ${{ env.REGION }} \
           --set-env-vars GCS_BUCKET=gold-price-raw-data \
           --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
