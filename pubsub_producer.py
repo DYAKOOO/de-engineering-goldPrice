@@ -6,13 +6,11 @@ import json
 from datetime import datetime
 import requests
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Get environment variables
 BASE_URL = os.environ.get('GOLD_API_BASE_URL', 'https://www.goldapi.io/api')
 GOLD_API_KEY = os.environ.get('GOLD_API_KEY')
 PROJECT_ID = os.environ.get('GOOGLE_CLOUD_PROJECT')
@@ -44,20 +42,7 @@ def fetch_gold_price(date):
         logger.error(f"Response status code: {getattr(e.response, 'status_code', 'N/A')}")
         logger.error(f"Response content: {getattr(e.response, 'content', 'N/A')}")
         return None
-    
-def publish_to_pubsub(data):
-    publisher = pubsub_v1.PublisherClient()
-    topic_path = publisher.topic_path(PROJECT_ID, PUBSUB_TOPIC)
-    
-    data_str = json.dumps(data).encode("utf-8")
-    try:
-        future = publisher.publish(topic_path, data_str)
-        message_id = future.result(timeout=30)
-        logger.info(f"Published message ID: {message_id}")
-        return True
-    except Exception as e:
-        logger.error(f"Error publishing to Pub/Sub: {str(e)}")
-        return False
+
 
 
 def write_to_gcs(data):
@@ -72,17 +57,17 @@ def write_to_gcs(data):
 def fetch_and_publish():
     try:
         date_str = datetime.now().strftime('%Y-%m-%d')
+        logger.info(f"Attempting to fetch gold price for date: {date_str}")
+        logger.info(f"GOLD_API_KEY: {'*' * len(GOLD_API_KEY) if GOLD_API_KEY else 'Not set'}")
         price_data = fetch_gold_price(date_str)
         if price_data:
-            if publish_to_pubsub(price_data):
-                write_to_gcs(price_data)
-                return jsonify({"status": "success", "data": price_data}), 200
-            else:
-                return jsonify({"status": "error", "message": "Failed to publish to Pub/Sub"}), 500
+            logger.info(f"Successfully fetched gold price data: {price_data}")
+            return jsonify({"status": "success", "data": price_data}), 200
         else:
+            logger.error("Failed to fetch gold price data")
             return jsonify({"status": "error", "message": "Failed to fetch gold price data"}), 500
     except Exception as e:
-        logger.exception(f"An error occurred: {str(e)}")
+        logger.exception(f"An unexpected error occurred: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
