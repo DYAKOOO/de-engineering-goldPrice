@@ -11,15 +11,15 @@
 - Dockerfile-function
 - Dockerfile-producer
 - get_secret.py
-- .github/workflows/version_increment.sh
-- .github/workflows/main.yaml
-- .github/workflows/process-gold-price.yaml
 - infrastructure/Pulumi.yaml
 - infrastructure/os
 - infrastructure/Pulumi.dev.yaml
 - infrastructure/main.go
 - spark_jobs/clean_transform.py
 - spark_jobs/load_to_bigquery.py
+- .github/workflows/version_increment.sh
+- .github/workflows/main.yaml
+- .github/workflows/process-gold-price.yaml
 
 ## File: requirements.txt
 
@@ -1073,227 +1073,6 @@ ALPHA_VANTAGE_API_KEY = get_secret('api-secrets', 'alpha-vantage-api-key')
 KAFKA_PASSWORD = get_secret('kafka-secrets', 'kafka-password')
 ```
 
-## File: .github/workflows/version_increment.sh
-
-- Extension: .sh
-- Language: bash
-- Size: 630 bytes
-- Created: 2024-10-09 15:59:19
-- Modified: 2024-10-09 15:59:19
-
-### Code
-
-```bash
-#!/bin/bash
-
-# Fetch the latest version
-LATEST_VERSION=$(gcloud container images list-tags gcr.io/de-goldprice/gold-price-producer --format='get(tags)' --sort-by=~tags | grep '^v1\.0\.' | head -n 1)
-
-# Extract and increment patch version
-PATCH_VERSION=$(echo $LATEST_VERSION | cut -d. -f3)
-NEW_PATCH_VERSION=$((PATCH_VERSION + 1))
-NEW_VERSION="v1.0.$NEW_PATCH_VERSION"
-
-# Build and push the new version
-docker build -t gcr.io/de-goldprice/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
-docker push gcr.io/de-goldprice/gold-price-producer:$NEW_VERSION
-
-# Output the new version for use in other scripts
-echo $NEW_VERSION
-```
-
-## File: .github/workflows/main.yaml
-
-- Extension: .yaml
-- Language: yaml
-- Size: 3485 bytes
-- Created: 2024-10-09 16:01:31
-- Modified: 2024-10-09 16:01:31
-
-### Code
-
-```yaml
-name: Gold Price Data Pipeline
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  schedule:
-    - cron: '0 0 * * *' # Runs at 00:00 UTC every day
-
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: us-west1
-
-jobs:
-  deploy:
-    name: Deploy to GCP
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-
-    - name: Setup Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: '1.21'
-
-    - name: Setup Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v1
-      with:
-        project_id: ${{ env.PROJECT_ID }}
-
-    - name: Configure Docker
-      run: |
-        gcloud auth configure-docker gcr.io
-
-    - name: Create version increment script
-      run: |
-        cat << EOF > version_increment.sh
-        #!/bin/bash
-        LATEST_VERSION=\$(gcloud container images list-tags gcr.io/${PROJECT_ID}/gold-price-producer --format='get(tags)' --sort-by=~tags | grep '^v1\.0\.' | head -n 1)
-        PATCH_VERSION=\$(echo \$LATEST_VERSION | cut -d. -f3)
-        NEW_PATCH_VERSION=\$((PATCH_VERSION + 1))
-        NEW_VERSION="v1.0.\$NEW_PATCH_VERSION"
-        echo \$NEW_VERSION
-        EOF
-        chmod +x version_increment.sh
-
-    - name: Build and Push New Version
-      id: build_version
-      run: |
-        NEW_VERSION=$(./version_increment.sh)
-        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-        docker build -t gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
-        docker push gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION
-
-    - name: Deploy to Cloud Run
-      run: |
-        gcloud run deploy gold-price-ingestion \
-          --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:${{ steps.build_version.outputs.NEW_VERSION }} \
-          --region ${{ env.REGION }} \
-          --set-env-vars GCS_BUCKET=gold-price-raw-data \
-          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-
-    - name: Update Cloud Function
-      run: |
-        gcloud functions deploy process_gold_price \
-          --gen2 \
-          --runtime python310 \
-          --region ${{ env.REGION }} \
-          --source . \
-          --entry-point process_pubsub \
-          --trigger-topic gold-price
-
-    - name: Trigger Cloud Run Service
-      run: |
-        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format='value(status.url)')
-        curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
-
-    - name: Verify Deployment
-      run: |
-        gcloud run services describe gold-price-ingestion --region ${{ env.REGION }}
-        gcloud functions describe process_gold_price --region ${{ env.REGION }}
-
-    - name: Clean up old images
-      run: |
-        OLD_VERSIONS=$(gcloud container images list-tags gcr.io/${{ env.PROJECT_ID }}/gold-price-producer --format='get(tags)' --sort-by=~tags | tail -n +6)
-        for version in $OLD_VERSIONS; do
-          gcloud container images delete gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$version --quiet
-        done
-```
-
-## File: .github/workflows/process-gold-price.yaml
-
-- Extension: .yaml
-- Language: yaml
-- Size: 1745 bytes
-- Created: 2024-10-09 16:01:24
-- Modified: 2024-10-09 16:01:24
-
-### Code
-
-```yaml
-name: Process Gold Price Data
-
-on:
-  schedule:
-    - cron: '0 */12 * * *' # Runs every 12 hours
-  workflow_dispatch: # Allows manual triggering
-
-jobs:
-  process-data:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install google-cloud-pubsub google-cloud-bigquery google-cloud-storage
-
-    - name: Authenticate to Google Cloud
-      uses: 'google-github-actions/auth@v1'
-      with:
-        credentials_json: '${{ secrets.GCP_SA_KEY }}'
-
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v1
-
-    - name: Trigger Cloud Run Service
-      run: |
-        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region us-west1 --format='value(status.url)')
-        curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
-
-    - name: Run Spark Jobs
-      run: |
-        gcloud compute ssh spark-instance --zone us-west1-a --command "
-        spark-submit \
-        --master local[*] \
-        clean_transform.py && \
-        spark-submit \
-        --master local[*] \
-        load_to_bigquery.py
-        "
-
-    - name: Verify BigQuery Data
-      run: |
-        bq query --use_legacy_sql=false '
-        SELECT COUNT(*) as row_count
-        FROM `de-goldprice.gold_price_dataset.gold_prices`
-        WHERE DATE(date) = DATE(CURRENT_TIMESTAMP())
-        '
-
-    env:
-      PROJECT_ID: de-goldprice
-      PUBSUB_TOPIC: gold-price
-      BIGQUERY_DATASET: gold_price_dataset
-      BIGQUERY_TABLE: gold_prices
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
-```
-
 ## File: infrastructure/Pulumi.yaml
 
 - Extension: .yaml
@@ -1769,5 +1548,238 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+## File: .github/workflows/version_increment.sh
+
+- Extension: .sh
+- Language: bash
+- Size: 630 bytes
+- Created: 2024-10-09 16:47:07
+- Modified: 2024-10-09 15:59:19
+
+### Code
+
+```bash
+#!/bin/bash
+
+# Fetch the latest version
+LATEST_VERSION=$(gcloud container images list-tags gcr.io/de-goldprice/gold-price-producer --format='get(tags)' --sort-by=~tags | grep '^v1\.0\.' | head -n 1)
+
+# Extract and increment patch version
+PATCH_VERSION=$(echo $LATEST_VERSION | cut -d. -f3)
+NEW_PATCH_VERSION=$((PATCH_VERSION + 1))
+NEW_VERSION="v1.0.$NEW_PATCH_VERSION"
+
+# Build and push the new version
+docker build -t gcr.io/de-goldprice/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
+docker push gcr.io/de-goldprice/gold-price-producer:$NEW_VERSION
+
+# Output the new version for use in other scripts
+echo $NEW_VERSION
+```
+
+## File: .github/workflows/main.yaml
+
+- Extension: .yaml
+- Language: yaml
+- Size: 3636 bytes
+- Created: 2024-10-09 16:45:32
+- Modified: 2024-10-09 16:45:32
+
+### Code
+
+```yaml
+name: main
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * *' # Runs at 00:00 UTC every day
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-west1
+
+jobs:
+  deploy:
+    name: Deploy to GCP
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.21'
+
+    - name: Setup Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Configure Docker
+      run: |
+        gcloud auth configure-docker gcr.io
+
+    - name: Build and Push New Version
+      id: build_version
+      run: |
+        NEW_VERSION=$(./version_increment.sh)
+        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+        docker build -t gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
+        docker push gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy gold-price-ingestion \
+          --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:${{ steps.build_version.outputs.NEW_VERSION }} \
+          --region ${{ env.REGION }} \
+          --set-env-vars GCS_BUCKET=gold-price-raw-data \
+          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+
+    - name: Update Cloud Function
+      run: |
+        gcloud functions deploy process_gold_price \
+          --gen2 \
+          --runtime python310 \
+          --region ${{ env.REGION }} \
+          --source . \
+          --entry-point process_pubsub \
+          --trigger-http \
+          --allow-unauthenticated
+
+    - name: Copy Spark scripts to Compute Engine
+      run: |
+        gcloud compute scp spark_jobs/* spark-instance:~/ --zone us-west1-a
+
+    - name: Run Spark Jobs
+      run: |
+        gcloud compute ssh spark-instance --zone us-west1-a --command "
+        spark-submit \
+        --master local[*] \
+        clean_transform.py && \
+        spark-submit \
+        --master local[*] \
+        load_to_bigquery.py
+        "
+
+    - name: Trigger Cloud Run Service
+      run: |
+        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format='value(status.url)')
+        curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
+
+    - name: Verify Deployment
+      run: |
+        gcloud run services describe gold-price-ingestion --region ${{ env.REGION }}
+        gcloud functions describe process_gold_price --region ${{ env.REGION }}
+
+    - name: Verify BigQuery Data
+      run: |
+        bq query --use_legacy_sql=false '
+        SELECT COUNT(*) as row_count
+        FROM `de-goldprice.gold_price_dataset.gold_prices`
+        WHERE DATE(date) = DATE(CURRENT_TIMESTAMP())
+        '
+
+    - name: Clean up old images
+      run: |
+        OLD_VERSIONS=$(gcloud container images list-tags gcr.io/${{ env.PROJECT_ID }}/gold-price-producer --format='get(tags)' --sort-by=~tags | tail -n +6)
+        for version in $OLD_VERSIONS; do
+          gcloud container images delete gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$version --quiet
+        done
+```
+
+## File: .github/workflows/process-gold-price.yaml
+
+- Extension: .yaml
+- Language: yaml
+- Size: 1745 bytes
+- Created: 2024-10-09 16:01:24
+- Modified: 2024-10-09 16:01:24
+
+### Code
+
+```yaml
+name: Process Gold Price Data
+
+on:
+  schedule:
+    - cron: '0 */12 * * *' # Runs every 12 hours
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  process-data:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install google-cloud-pubsub google-cloud-bigquery google-cloud-storage
+
+    - name: Authenticate to Google Cloud
+      uses: 'google-github-actions/auth@v1'
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+
+    - name: Trigger Cloud Run Service
+      run: |
+        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region us-west1 --format='value(status.url)')
+        curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
+
+    - name: Run Spark Jobs
+      run: |
+        gcloud compute ssh spark-instance --zone us-west1-a --command "
+        spark-submit \
+        --master local[*] \
+        clean_transform.py && \
+        spark-submit \
+        --master local[*] \
+        load_to_bigquery.py
+        "
+
+    - name: Verify BigQuery Data
+      run: |
+        bq query --use_legacy_sql=false '
+        SELECT COUNT(*) as row_count
+        FROM `de-goldprice.gold_price_dataset.gold_prices`
+        WHERE DATE(date) = DATE(CURRENT_TIMESTAMP())
+        '
+
+    env:
+      PROJECT_ID: de-goldprice
+      PUBSUB_TOPIC: gold-price
+      BIGQUERY_DATASET: gold_price_dataset
+      BIGQUERY_TABLE: gold_prices
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
 ```
 
