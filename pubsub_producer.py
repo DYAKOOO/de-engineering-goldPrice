@@ -58,29 +58,28 @@ def fetch_and_publish():
         logger.info(f"GOLD_API_KEY: {'*' * (len(GOLD_API_KEY) - 4) + GOLD_API_KEY[-4:] if GOLD_API_KEY else 'Not set'}")
         logger.info(f"BASE_URL: {BASE_URL}")
         
-        url = f"{BASE_URL}/XAU/USD"
-        headers = {'x-access-token': GOLD_API_KEY}
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        gold_price_data = fetch_gold_price(date_str)
         
-        logger.info(f"Fetching gold price from API")
-        logger.info(f"Request URL: {url}")
-        logger.info(f"Request Headers: {headers}")
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        logger.info(f"API Response: {data}")
-        
-        return jsonify({"status": "success", "data": data}), 200
-    except requests.RequestException as e:
-        logger.error(f"Error fetching gold price data: {str(e)}")
-        logger.error(f"Response status code: {e.response.status_code if e.response else 'N/A'}")
-        logger.error(f"Response content: {e.response.content if e.response else 'N/A'}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        if gold_price_data:
+            # Write to GCS
+            write_to_gcs(gold_price_data)
+            
+            # Publish to Pub/Sub
+            publisher = pubsub_v1.PublisherClient()
+            topic_path = publisher.topic_path(PROJECT_ID, PUBSUB_TOPIC)
+            data_str = json.dumps(gold_price_data).encode("utf-8")
+            future = publisher.publish(topic_path, data_str)
+            message_id = future.result(timeout=30)
+            logger.info(f"Published message ID: {message_id}")
+            
+            return jsonify({"status": "success", "data": gold_price_data}), 200
+        else:
+            return jsonify({"status": "error", "message": "Failed to fetch gold price data"}), 500
     except Exception as e:
         logger.exception(f"An unexpected error occurred: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
+        
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)

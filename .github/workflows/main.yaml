@@ -146,12 +146,10 @@ jobs:
           --region ${{ env.REGION }} \
           --source . \
           --entry-point process_pubsub \
-          --trigger-http \
-          --allow-unauthenticated \
+          --trigger-topic gold-price \
           --min-instances 1 \
-          --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }} \
+          --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET=gold-price-raw-data \
           --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-          --docker-registry=gcr.io
 
     - name: Check Cloud Function logs
       run: |
@@ -172,6 +170,11 @@ jobs:
       run: |
         gcloud compute scp sa-key.json spark-instance:~/ --zone us-west1-a
     
+    - name: Verify Pub/Sub Topic
+      run: |
+        gcloud pubsub topics describe gold-price || \
+        gcloud pubsub topics create gold-price
+
     - name: Verify GCS Access
       run: |
         echo "Verifying GCS access..."
