@@ -151,7 +151,7 @@ jobs:
           --allow-unauthenticated \
           --min-instances 1 \
           --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }} \
-          --service-account process-gold-price@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
 
     - name: Check Cloud Function logs
       run: |
