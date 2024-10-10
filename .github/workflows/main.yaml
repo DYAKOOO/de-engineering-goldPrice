@@ -142,9 +142,9 @@ jobs:
           --min-instances 1 \
           --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
         
-        # Check Cloud Function logs
         gcloud functions logs read process_gold_price --gen2 --region ${{ env.REGION }} --limit 50
-
+        
+        gcloud functions describe process_gold_price --gen2 --region ${{ env.REGION }}
     - name: Check GCS Bucket Contents
       run: |
         echo "Listing GCS bucket contents..."
