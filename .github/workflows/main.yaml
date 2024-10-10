@@ -96,7 +96,16 @@ jobs:
         echo "Listing contents of GCS bucket:"
         gsutil ls gs://de-goldprice-code/
 
-    - name: Deploy to Cloud Run
+
+    - name: Delete existing Cloud Function and Cloud Run service
+      run: |
+        gcloud functions delete process_gold_price --gen2 --region ${{ env.REGION }} --quiet || true
+        gcloud run services delete process-gold-price --region ${{ env.REGION }} --quiet || true
+
+    - name: Wait for deletion to complete
+      run: sleep 60  # Wait for 60 seconds to ensure deletion is complete
+
+        - name: Deploy to Cloud Run
       env:
         NEW_VERSION: ${{ steps.get_version.outputs.NEW_VERSION }}
       run: |
@@ -129,15 +138,7 @@ jobs:
       run: |
         gcloud run services logs read gold-price-ingestion --region ${{ env.REGION }} --limit 50
 
-    # - name: Test Cloud Function locally
-    #   run: |
-    #     python cloud_functions.py &
-    #     PID=$!
-    #     sleep 5
-    #     curl http://localhost:8080
-    #     kill $PID
-    
- 
+
     - name: Deploy Cloud Function
       run: |
         gcloud functions deploy process_gold_price \
@@ -145,14 +146,14 @@ jobs:
           --runtime python310 \
           --region ${{ env.REGION }} \
           --source . \
-          --entry-point function_main.process_pubsub \
+          --entry-point process_pubsub \
           --trigger-topic gold-price \
           --min-instances 1 \
           --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET=gold-price-raw-data \
-          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
           --memory 256MB \
           --timeout 60s
-          
+
     - name: Check Cloud Function logs
       run: |
         gcloud functions logs read process_gold_price --gen2 --region ${{ env.REGION }} --limit 50
