@@ -1,4 +1,4 @@
-name: main
+name: Gold Price Data Pipeline
 
 on:
   push:
@@ -119,7 +119,7 @@ jobs:
         
         # Verify environment variables
         gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format="yaml(spec.template.spec.containers[].env)"
-    
+
     - name: Trigger data ingestion
       run: |
         CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format='value(status.url)')
@@ -127,9 +127,21 @@ jobs:
 
     - name: Check Cloud Run Logs
       run: |
-        gcloud run services logs read  gold-price-ingestion --region ${{ env.REGION }} --limit 50
+        gcloud run services logs read gold-price-ingestion --region ${{ env.REGION }} --limit 50
 
-    - name: Update Cloud Function
+    - name: Test Cloud Function locally
+      run: |
+        python cloud_functions.py &
+        PID=$!
+        sleep 5
+        curl http://localhost:8080
+        kill $PID
+
+    - name: Use Cloud Build to create Cloud Function container image
+      run: |
+        gcloud builds submit --tag gcr.io/$PROJECT_ID/process-gold-price
+
+    - name: Deploy Cloud Function
       run: |
         gcloud functions deploy process_gold_price \
           --gen2 \
@@ -140,11 +152,17 @@ jobs:
           --trigger-http \
           --allow-unauthenticated \
           --min-instances 1 \
-          --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
-        
+          --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }} \
+          --service-account process-gold-price@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+
+    - name: Check Cloud Function logs
+      run: |
         gcloud functions logs read process_gold_price --gen2 --region ${{ env.REGION }} --limit 50
-        
+
+    - name: Describe Cloud Function
+      run: |
         gcloud functions describe process_gold_price --gen2 --region ${{ env.REGION }}
+
     - name: Check GCS Bucket Contents
       run: |
         echo "Listing GCS bucket contents..."
@@ -190,7 +208,6 @@ jobs:
         "
       env:
         CLOUDSDK_COMPUTE_ZONE: us-west1-a
-
 
     - name: Trigger Cloud Run Service
       run: |
