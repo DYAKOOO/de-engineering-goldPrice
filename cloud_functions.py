@@ -15,9 +15,13 @@ def process_pubsub(request):
 if __name__ == "__main__":
     # This is for local testing
     import flask
+    import werkzeug.serving
 
     app = flask.Flask(__name__)
-    app.register_blueprint(functions_framework.create_app(target_function=process_pubsub))
+
+    @app.route("/", methods=["POST", "GET"])
+    def index():
+        return process_pubsub(flask.request)
 
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    werkzeug.serving.run_simple("localhost", port, app, use_reloader=True)
