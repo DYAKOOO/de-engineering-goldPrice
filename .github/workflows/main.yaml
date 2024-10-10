@@ -137,7 +137,7 @@ jobs:
     #     curl http://localhost:8080
     #     kill $PID
 
-
+ 
     - name: Deploy Cloud Function
       run: |
         gcloud functions deploy process_gold_price \
@@ -145,15 +145,14 @@ jobs:
           --runtime python310 \
           --region ${{ env.REGION }} \
           --source . \
-          --entry-point process_pubsub \
+          --entry-point function_main.process_pubsub \
           --trigger-topic gold-price \
           --min-instances 1 \
           --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET=gold-price-raw-data \
           --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-
-    - name: Check Cloud Function logs
-      run: |
-        gcloud functions logs read process_gold_price --gen2 --region ${{ env.REGION }} --limit 50
+        - name: Check Cloud Function logs
+          run: |
+            gcloud functions logs read process_gold_price --gen2 --region ${{ env.REGION }} --limit 50
 
     - name: Describe Cloud Function
       run: |

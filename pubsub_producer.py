@@ -79,6 +79,19 @@ def fetch_and_publish():
     except Exception as e:
         logger.exception(f"An unexpected error occurred: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+def publish_to_pubsub(topic_name, data):
+    publisher = pubsub_v1.PublisherClient()
+    topic_path = publisher.topic_path(PROJECT_ID, topic_name)
+    data_str = json.dumps(data).encode("utf-8")
+    try:
+        future = publisher.publish(topic_path, data_str)
+        message_id = future.result(timeout=30)
+        logger.info(f"Published message ID: {message_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Error publishing to Pub/Sub: {str(e)}")
+        return False
         
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
