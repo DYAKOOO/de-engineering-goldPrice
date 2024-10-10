@@ -152,6 +152,7 @@ jobs:
           --min-instances 1 \
           --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }} \
           --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+          --docker-registry=gcr.io
 
     - name: Check Cloud Function logs
       run: |

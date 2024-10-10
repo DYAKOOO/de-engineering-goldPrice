@@ -13,15 +13,12 @@ def process_pubsub(request):
     return 'OK', 200
 
 if __name__ == "__main__":
-    # This is for local testing
+    # This is for local testing only
     import flask
     import werkzeug.serving
 
     app = flask.Flask(__name__)
-
-    @app.route("/", methods=["POST", "GET"])
-    def index():
-        return process_pubsub(flask.request)
+    app.add_url_rule("/", "index", process_pubsub, methods=["GET", "POST"])
 
     port = int(os.environ.get("PORT", 8080))
     werkzeug.serving.run_simple("localhost", port, app, use_reloader=True)
