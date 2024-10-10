@@ -96,16 +96,7 @@ jobs:
         echo "Listing contents of GCS bucket:"
         gsutil ls gs://de-goldprice-code/
 
-
-    - name: Delete existing Cloud Function and Cloud Run service
-      run: |
-        gcloud functions delete process_gold_price --gen2 --region ${{ env.REGION }} --quiet || true
-        gcloud run services delete process-gold-price --region ${{ env.REGION }} --quiet || true
-
-    - name: Wait for deletion to complete
-      run: sleep 60  # Wait for 60 seconds to ensure deletion is complete
-
-        - name: Deploy to Cloud Run
+    - name: Deploy to Cloud Run
       env:
         NEW_VERSION: ${{ steps.get_version.outputs.NEW_VERSION }}
       run: |
