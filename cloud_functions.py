@@ -10,8 +10,9 @@ def process_pubsub(request):
     logger.info("Cloud Function triggered successfully!")
     return 'OK', 200
 
-# This is for local testing
 if __name__ == "__main__":
+    # This is for local testing
+    import os
     from flask import Flask, request
     app = Flask(__name__)
     
@@ -19,4 +20,5 @@ if __name__ == "__main__":
     def index():
         return process_pubsub(request)
     
-    app.run(host="localhost", port=8080, debug=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=True)

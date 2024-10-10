@@ -111,11 +111,14 @@ jobs:
           --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION \
           --region ${{ env.REGION }} \
           --set-env-vars GCS_BUCKET=gold-price-raw-data \
-          --set-env-vars GOLD_API_KEY=${{ secrets.GOLD_API_KEY }} \
+          --set-env-vars GOLD_API_KEY="${{ secrets.GOLD_API_KEY }}" \
           --set-env-vars GOLD_API_BASE_URL=https://www.goldapi.io/api \
           --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }} \
           --set-env-vars PUBSUB_TOPIC=gold-price \
-          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com  
+          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+        
+        # Verify environment variables
+        gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format="yaml(spec.template.spec.containers[].env)"
     
     - name: Trigger data ingestion
       run: |
@@ -135,8 +138,12 @@ jobs:
           --source . \
           --entry-point process_pubsub \
           --trigger-http \
-          --allow-unauthenticated
-          --min-instances 1
+          --allow-unauthenticated \
+          --min-instances 1 \
+          --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
+        
+        # Check Cloud Function logs
+        gcloud functions logs read process_gold_price --gen2 --region ${{ env.REGION }} --limit 50
 
     - name: Check GCS Bucket Contents
       run: |
