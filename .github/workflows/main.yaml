@@ -137,9 +137,7 @@ jobs:
         curl http://localhost:8080
         kill $PID
 
-    - name: Use Cloud Build to create Cloud Function container image
-      run: |
-        gcloud builds submit --tag gcr.io/$PROJECT_ID/process-gold-price
+ 
 
     - name: Deploy Cloud Function
       run: |
