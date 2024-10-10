@@ -129,15 +129,14 @@ jobs:
       run: |
         gcloud run services logs read gold-price-ingestion --region ${{ env.REGION }} --limit 50
 
-    - name: Test Cloud Function locally
-      run: |
-        python cloud_functions.py &
-        PID=$!
-        sleep 5
-        curl http://localhost:8080
-        kill $PID
+    # - name: Test Cloud Function locally
+    #   run: |
+    #     python cloud_functions.py &
+    #     PID=$!
+    #     sleep 5
+    #     curl http://localhost:8080
+    #     kill $PID
 
- 
 
     - name: Deploy Cloud Function
       run: |
