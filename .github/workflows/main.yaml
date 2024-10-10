@@ -137,7 +137,10 @@ jobs:
     #     curl http://localhost:8080
     #     kill $PID
 
- 
+    - name: Delete existing Cloud Function
+      run: |
+        gcloud functions delete process_gold_price --region ${{ env.REGION }} --quiet || true
+    
     - name: Deploy Cloud Function
       run: |
         gcloud functions deploy process_gold_price \
