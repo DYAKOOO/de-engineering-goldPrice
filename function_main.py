@@ -17,7 +17,10 @@ def process_pubsub(cloud_event):
         gold_price_data = json.loads(data)
         logger.info(f"Received gold price data: {gold_price_data}")
         # Process the data (e.g., write to BigQuery)
-        return 'OK'
+        return ('', 204)
     except Exception as e:
         logger.error(f"Error processing message: {str(e)}")
-        raise
+        return (str(e), 500)
+
+# This line is crucial for Gen 2 functions
+process_pubsub = functions_framework.cloud_event(process_pubsub)
