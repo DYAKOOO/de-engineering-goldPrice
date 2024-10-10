@@ -100,13 +100,23 @@ jobs:
       env:
         NEW_VERSION: ${{ steps.get_version.outputs.NEW_VERSION }}
       run: |
+        echo "Deploying to Cloud Run with the following environment variables:"
+        echo "GCS_BUCKET: gold-price-raw-data"
+        echo "GOLD_API_KEY: ${{ secrets.GOLD_API_KEY }}"
+        echo "GOLD_API_BASE_URL: https://www.goldapi.io/api"
+        echo "GOOGLE_CLOUD_PROJECT: ${{ env.PROJECT_ID }}"
+        echo "PUBSUB_TOPIC: gold-price"
+        
         gcloud run deploy gold-price-ingestion \
           --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION \
           --region ${{ env.REGION }} \
           --set-env-vars GCS_BUCKET=gold-price-raw-data \
-          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-
-
+          --set-env-vars GOLD_API_KEY=${{ secrets.GOLD_API_KEY }} \
+          --set-env-vars GOLD_API_BASE_URL=https://www.goldapi.io/api \
+          --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }} \
+          --set-env-vars PUBSUB_TOPIC=gold-price \
+          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com  
+    
     - name: Trigger data ingestion
       run: |
         CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format='value(status.url)')
@@ -126,6 +136,7 @@ jobs:
           --entry-point process_pubsub \
           --trigger-http \
           --allow-unauthenticated
+          --min-instances 1
 
     - name: Check GCS Bucket Contents
       run: |
