@@ -40,16 +40,6 @@ jobs:
         echo '${{ secrets.GCP_SA_KEY }}' > sa-key.json
         chmod 600 sa-key.json
 
-    - name: Check Service Account Key
-      run: |
-        echo "Checking service account key format..."
-        if [ -f sa-key.json ]; then
-          jq . sa-key.json
-        else
-          echo "sa-key.json file not found"
-          ls -la
-        fi
-
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
       with:
@@ -80,19 +70,9 @@ jobs:
         docker build -t gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
         docker push gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION
 
-    - name: Check repository contents
-      run: |
-        echo "Current directory contents:"
-        ls -R
-        echo "Searching for Python files:"
-        find . -name "*.py"
-
     - name: Upload code to GCS
       run: |
-        echo "Attempting to upload clean_transform.py"
-        find . -name "clean_transform.py" -exec gsutil cp {} gs://de-goldprice-code/ \;
-        echo "Attempting to upload load_to_bigquery.py"
-        find . -name "load_to_bigquery.py" -exec gsutil cp {} gs://de-goldprice-code/ \;
+        gsutil cp *.py gs://de-goldprice-code/
         echo "Listing contents of GCS bucket:"
         gsutil ls gs://de-goldprice-code/
 
@@ -100,13 +80,6 @@ jobs:
       env:
         NEW_VERSION: ${{ steps.get_version.outputs.NEW_VERSION }}
       run: |
-        echo "Deploying to Cloud Run with the following environment variables:"
-        echo "GCS_BUCKET: gold-price-raw-data"
-        echo "GOLD_API_KEY: ${{ secrets.GOLD_API_KEY }}"
-        echo "GOLD_API_BASE_URL: https://www.goldapi.io/api"
-        echo "GOOGLE_CLOUD_PROJECT: ${{ env.PROJECT_ID }}"
-        echo "PUBSUB_TOPIC: gold-price"
-        
         gcloud run deploy gold-price-ingestion \
           --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION \
           --region ${{ env.REGION }} \
@@ -116,103 +89,19 @@ jobs:
           --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }} \
           --set-env-vars PUBSUB_TOPIC=gold-price \
           --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-        
-        # Verify environment variables
-        gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format="yaml(spec.template.spec.containers[].env)"
 
-    - name: Trigger data ingestion
+    - name: Upload DAG to Cloud Composer
       run: |
-        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format='value(status.url)')
-        curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
+        gcloud composer environments storage dags import \
+          --environment gold-price-composer \
+          --location ${{ env.REGION }} \
+          --source dags/gold_price_dag.py
 
-    - name: Check Cloud Run Logs
+    - name: Trigger Airflow DAG
       run: |
-        gcloud run services logs read gold-price-ingestion --region ${{ env.REGION }} --limit 50
-
-
-    - name: Deploy Cloud Function
-      run: |
-        gcloud functions deploy process_gold_price \
-          --gen2 \
-          --runtime python310 \
-          --region ${{ env.REGION }} \
-          --source . \
-          --entry-point process_pubsub \
-          --trigger-topic gold-price \
-          --min-instances 1 \
-          --set-env-vars GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET=gold-price-raw-data \
-          --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-          --memory 256MB \
-          --timeout 60s
-
-    - name: Check Cloud Function logs
-      run: |
-        gcloud functions logs read process_gold_price --gen2 --region ${{ env.REGION }} --limit 50
-
-    - name: Describe Cloud Function
-      run: |
-        gcloud functions describe process_gold_price --gen2 --region ${{ env.REGION }}
-
-    - name: Check GCS Bucket Contents
-      run: |
-        echo "Listing GCS bucket contents..."
-        gsutil ls gs://gold-price-raw-data/
-        echo "Displaying sample content of a JSON file..."
-        gsutil cat gs://gold-price-raw-data/*.json | head -n 5
-
-    - name: Copy Service Account Key to Compute Engine
-      run: |
-        gcloud compute scp sa-key.json spark-instance:~/ --zone us-west1-a
-    
-    - name: Verify Pub/Sub Topic
-      run: |
-        gcloud pubsub topics describe gold-price || \
-        gcloud pubsub topics create gold-price
-
-    - name: Verify GCS Access
-      run: |
-        echo "Verifying GCS access..."
-        gsutil ls gs://de-goldprice-code/
-        gsutil ls gs://gold-price-raw-data/
-        gsutil ls gs://gold-price-processed-data/
-
-    - name: Run Spark Jobs
-      run: |
-        gcloud compute ssh spark-instance --zone us-west1-a --command "
-        set -e
-        echo 'Downloading code from GCS...'
-        gcloud auth activate-service-account --key-file=/home/runner/sa-key.json
-        gsutil cp gs://de-goldprice-code/*.py .
-        echo 'Running Spark jobs...'
-        spark-submit \
-        --master local[*] \
-        --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
-        --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
-        --conf spark.hadoop.fs.gs.auth.service.account.enable=true \
-        --conf spark.hadoop.fs.gs.auth.service.account.json.keyfile=/home/runner/sa-key.json \
-        --jars gcs-connector-hadoop3-latest.jar \
-        clean_transform.py
-        spark-submit \
-        --master local[*] \
-        --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
-        --conf spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS \
-        --conf spark.hadoop.fs.gs.auth.service.account.enable=true \
-        --conf spark.hadoop.fs.gs.auth.service.account.json.keyfile=/home/runner/sa-key.json \
-        --jars gcs-connector-hadoop3-latest.jar \
-        load_to_bigquery.py
-        "
-      env:
-        CLOUDSDK_COMPUTE_ZONE: us-west1-a
-
-    - name: Trigger Cloud Run Service
-      run: |
-        CLOUD_RUN_URL=$(gcloud run services describe gold-price-ingestion --region ${{ env.REGION }} --format='value(status.url)')
-        curl -X GET ${CLOUD_RUN_URL}/fetch-and-publish
-
-    - name: Verify Deployment
-      run: |
-        gcloud run services describe gold-price-ingestion --region ${{ env.REGION }}
-        gcloud functions describe process_gold_price --region ${{ env.REGION }}
+        gcloud composer environments run gold-price-composer \
+          --location ${{ env.REGION }} \
+          dags trigger -- gold_price_pipeline
 
     - name: Verify BigQuery Data
       run: |
