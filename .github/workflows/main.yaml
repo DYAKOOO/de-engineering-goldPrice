@@ -97,7 +97,34 @@ jobs:
         gsutil cp dags/gold_price_dag.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
 
 
+    - name: Check Composer Environment Status
+      id: check_composer
+      run: |
+        MAX_RETRIES=10
+        RETRY_INTERVAL=60
+        for i in $(seq 1 $MAX_RETRIES); do
+          STATUS=$(gcloud composer environments describe gold-price-composer --location ${{ env.REGION }} --format="value(state)")
+          if [ "$STATUS" = "RUNNING" ]; then
+            echo "Composer environment is running."
+            echo "composer_ready=true" >> $GITHUB_OUTPUT
+            break
+          elif [ "$STATUS" = "UPDATING" ]; then
+            echo "Composer environment is updating. Waiting..."
+            sleep $RETRY_INTERVAL
+          else
+            echo "Composer environment is in an unexpected state: $STATUS"
+            echo "composer_ready=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+        done
+        if [ "$STATUS" != "RUNNING" ]; then
+          echo "Composer environment did not become ready in time."
+          echo "composer_ready=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
     - name: Configure SSH connection
+      if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
         SPARK_IP=$(gcloud compute instances describe spark-instance --zone ${{ env.REGION }}-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
         gcloud composer environments run gold-price-composer \
