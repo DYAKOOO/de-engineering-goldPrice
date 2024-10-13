@@ -90,6 +90,46 @@ jobs:
           --set-env-vars PUBSUB_TOPIC=gold-price \
           --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
 
+    - name: Update DAG file
+      run: |
+        sed -i 's/from data_sources/from de_goldprice.data_sources/' dags/gold_price_dag.py
+        sed -i 's/from pubsub_producer/from de_goldprice.pubsub_producer/' dags/gold_price_dag.py
+        gsutil cp dags/gold_price_dag.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
+
+    - name: Install custom dependencies in Composer
+      run: |
+        gcloud composer environments update gold-price-composer \
+          --location ${{ env.REGION }} \
+          --update-pypi-packages-from-file requirements.txt
+
+    - name: Configure SSH connection
+      run: |
+        SPARK_IP=$(gcloud compute instances describe spark-instance --zone ${{ env.REGION }}-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+        gcloud composer environments run gold-price-composer \
+          --location ${{ env.REGION }} \
+          connections -- add 'spark_instance_ssh_hook' \
+          --conn-type 'ssh' \
+          --conn-host "$SPARK_IP" \
+          --conn-login 'ubuntu' \
+          --conn-port 22 \
+          --conn-extra '{"key_file": "/home/airflow/gcs/data/spark_ssh_key"}'
+
+    - name: Upload SSH key to Composer
+      run: |
+        echo "${{ secrets.SPARK_SSH_PRIVATE_KEY }}" | gcloud composer environments storage data import \
+          --environment gold-price-composer \
+          --location ${{ env.REGION }} \
+          --destination spark_ssh_key
+
+    - name: Install custom package in Composer
+      run: |
+        pip install . --target /tmp/de_goldprice
+        zip -r /tmp/de_goldprice.zip /tmp/de_goldprice
+        gcloud composer environments storage plugins import \
+          --environment gold-price-composer \
+          --location ${{ env.REGION }} \
+          --source /tmp/de_goldprice.zip
+
     - name: Upload DAG to Cloud Composer
       run: |
         gcloud composer environments storage dags import \

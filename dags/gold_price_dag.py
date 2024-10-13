@@ -6,8 +6,7 @@ from datetime import datetime, timedelta
 import os
 import sys
 
-# Add the project root to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 from data_sources import fetch_gold_price as api_fetch_gold_price
 from pubsub_producer import publish_to_pubsub
