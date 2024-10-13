@@ -96,11 +96,6 @@ jobs:
         sed -i 's/from pubsub_producer/from de_goldprice.pubsub_producer/' dags/gold_price_dag.py
         gsutil cp dags/gold_price_dag.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
 
-    - name: Install custom dependencies in Composer
-      run: |
-        gcloud composer environments update gold-price-composer \
-          --location ${{ env.REGION }} \
-          --update-pypi-packages-from-file requirements.txt
 
     - name: Configure SSH connection
       run: |
@@ -129,6 +124,10 @@ jobs:
           --environment gold-price-composer \
           --location ${{ env.REGION }} \
           --source /tmp/de_goldprice.zip
+    
+    - name: Upload Python scripts to Composer
+      run: |
+        gsutil cp data_sources.py pubsub_producer.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
 
     - name: Upload DAG to Cloud Composer
       run: |

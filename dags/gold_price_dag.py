@@ -3,6 +3,8 @@ from airflow.operators.python_operator import PythonOperator
 from airflow.providers.google.cloud.operators.compute import ComputeEngineStartInstanceOperator, ComputeEngineStopInstanceOperator
 from airflow.providers.ssh.operators.ssh import SSHOperator
 from datetime import datetime, timedelta
+from data_sources import fetch_gold_price as api_fetch_gold_price
+from pubsub_producer import publish_to_pubsub
 import os
 import sys
 
