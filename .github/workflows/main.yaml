@@ -115,15 +115,6 @@ jobs:
           --environment gold-price-composer \
           --location ${{ env.REGION }} \
           --destination spark_ssh_key
-
-    - name: Install custom package in Composer
-      run: |
-        pip install . --target /tmp/de_goldprice
-        zip -r /tmp/de_goldprice.zip /tmp/de_goldprice
-        gcloud composer environments storage plugins import \
-          --environment gold-price-composer \
-          --location ${{ env.REGION }} \
-          --source /tmp/de_goldprice.zip
     
     - name: Upload Python scripts to Composer
       run: |
