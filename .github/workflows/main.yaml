@@ -96,7 +96,6 @@ jobs:
         sed -i 's/from pubsub_producer/from de_goldprice.pubsub_producer/' dags/gold_price_dag.py
         gsutil cp dags/gold_price_dag.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
 
-
     - name: Check Composer Environment Status
       id: check_composer
       run: |
@@ -123,10 +122,21 @@ jobs:
           exit 1
         fi
 
+    - name: Upload SSH key to Composer
+      if: steps.check_composer.outputs.composer_ready == 'true'
+      run: |
+        echo "${{ secrets.SPARK_SSH_PRIVATE_KEY }}" | gcloud composer environments storage data import \
+          --environment gold-price-composer \
+          --location ${{ env.REGION }} \
+          --destination spark_ssh_key
+
     - name: Configure SSH connection
       if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
         SPARK_IP=$(gcloud compute instances describe spark-instance --zone ${{ env.REGION }}-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+        gcloud composer environments run gold-price-composer \
+          --location ${{ env.REGION }} \
+          connections -- delete 'spark_instance_ssh_hook'
         gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
           connections -- add 'spark_instance_ssh_hook' \
@@ -136,18 +146,47 @@ jobs:
           --conn-port 22 \
           --conn-extra '{"key_file": "/home/airflow/gcs/data/spark_ssh_key"}'
 
-    - name: Upload SSH key to Composer
+    - name: Verify SSH key in Composer
+      if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
-        echo "${{ secrets.SPARK_SSH_PRIVATE_KEY }}" | gcloud composer environments storage data import \
+        gcloud composer environments storage data list \
           --environment gold-price-composer \
           --location ${{ env.REGION }} \
-          --destination spark_ssh_key
+          | grep spark_ssh_key
+
+    - name: Test SSH Connection from Composer
+      if: steps.check_composer.outputs.composer_ready == 'true'
+      run: |
+        gcloud composer environments run gold-price-composer \
+          --location ${{ env.REGION }} \
+          python -- -c "
+    from airflow.providers.ssh.hooks.ssh import SSHHook
+    hook = SSHHook(ssh_conn_id='spark_instance_ssh_hook')
+    with hook.get_conn() as ssh_client:
+        stdin, stdout, stderr = ssh_client.exec_command('echo SSH connection successful')
+        print(stdout.read().decode())"
+    
+    - name: Configure Firewall for Spark Instance
+      run: |
+        if ! gcloud compute firewall-rules describe allow-composer-to-spark &>/dev/null; then
+          gcloud compute firewall-rules create allow-composer-to-spark \
+            --direction=INGRESS \
+            --priority=1000 \
+            --network=default \
+            --action=ALLOW \
+            --rules=tcp:22 \
+            --source-ranges=$(gcloud composer environments describe gold-price-composer --location ${{ env.REGION }} --format="get(config.nodeConfig.composerInternalIpv4CidrBlock)")
+        else
+          echo "Firewall rule allow-composer-to-spark already exists."
+        fi
     
     - name: Upload Python scripts to Composer
+      if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
         gsutil cp data_sources.py pubsub_producer.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
 
     - name: Upload DAG to Cloud Composer
+      if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
         gcloud composer environments storage dags import \
           --environment gold-price-composer \
@@ -155,18 +194,28 @@ jobs:
           --source dags/gold_price_dag.py
 
     - name: Trigger Airflow DAG
+      if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
-        gcloud composer environments run gold-price-composer \
+        if ! gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
-          dags trigger -- gold_price_pipeline
+          dags trigger -- gold_price_pipeline; then
+          echo "Failed to trigger DAG. Check Airflow logs for more details."
+          exit 1
+        fi
 
     - name: Verify BigQuery Data
       run: |
-        bq query --use_legacy_sql=false '
+        ROW_COUNT=$(bq query --use_legacy_sql=false --format=csv '
         SELECT COUNT(*) as row_count
         FROM `de-goldprice.gold_price_dataset.gold_prices`
         WHERE DATE(date) = DATE(CURRENT_TIMESTAMP())
-        '
+        ' | tail -n 1)
+        if [ "$ROW_COUNT" -eq "0" ]; then
+          echo "No data found for today in BigQuery. This may indicate an issue with the pipeline."
+          exit 1
+        else
+          echo "Found $ROW_COUNT rows for today in BigQuery."
+        fi
 
     - name: Clean up old images
       run: |

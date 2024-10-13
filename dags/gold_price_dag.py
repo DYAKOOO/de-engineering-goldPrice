@@ -65,6 +65,7 @@ run_clean_transform = SSHOperator(
     dag=dag,
 )
 
+
 run_load_to_bigquery = SSHOperator(
     task_id='run_load_to_bigquery',
     ssh_hook='spark_instance_ssh_hook',
