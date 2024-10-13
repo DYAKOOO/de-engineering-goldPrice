@@ -160,11 +160,10 @@ jobs:
         gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
           python -- -c "
-    from airflow.providers.ssh.hooks.ssh import SSHHook
-    hook = SSHHook(ssh_conn_id='spark_instance_ssh_hook')
-    with hook.get_conn() as ssh_client:
-        stdin, stdout, stderr = ssh_client.exec_command('echo SSH connection successful')
-        print(stdout.read().decode())"
+        from airflow.providers.ssh.hooks.ssh import SSHHook
+        hook = SSHHook(ssh_conn_id='spark_instance_ssh_hook')
+            stdin, stdout, stderr = ssh_client.exec_command('echo SSH connection successful')
+            print(stdout.read().decode())"
     
     - name: Configure Firewall for Spark Instance
       run: |
