@@ -6,11 +6,10 @@ import (
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/compute"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/cloudrun"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/storage"
+	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/composer"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
-	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/monitoring"
 )
-
 
 func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
@@ -56,6 +55,7 @@ func main() {
 		if err != nil {
 			return err
 		}
+
 		// Create Pub/Sub topic
 		topicName := "gold-price"
 		topic, err := pubsub.NewTopic(ctx, topicName, &pubsub.TopicArgs{
@@ -165,29 +165,6 @@ func main() {
 			return err
 		}
 
-		// Create a view for 30-day moving average
-		_, err = bigquery.NewTable(ctx, "gold_price_30day_avg", &bigquery.TableArgs{
-			DatasetId: dataset.DatasetId,
-			TableId:   pulumi.String("gold_price_30day_avg"),
-			Project:   pulumi.String(project),
-			View: &bigquery.TableViewArgs{
-				Query: pulumi.Sprintf(`
-					SELECT
-						date,
-						price,
-						AVG(price) OVER (ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS moving_avg_30day
-					FROM
-						%s.%s.gold_prices
-					ORDER BY
-						date DESC
-				`, project, dataset.DatasetId),
-				UseLegacySql: pulumi.Bool(false),
-			},
-		})
-		if err != nil {
-			return err
-		}
-
 		// Cloud Run service
 		_, err = cloudrun.NewService(ctx, "gold-price-ingestion", &cloudrun.ServiceArgs{
 			Location: pulumi.String(region),
@@ -228,26 +205,37 @@ func main() {
 		if err != nil {
 			return err
 		}
+		// Create a view for 30-day moving average
+		_, err = bigquery.NewTable(ctx, "gold_price_30day_avg", &bigquery.TableArgs{
+			DatasetId: dataset.DatasetId,
+			TableId:   pulumi.String("gold_price_30day_avg"),
+			Project:   pulumi.String(project),
+			View: &bigquery.TableViewArgs{
+				Query: pulumi.Sprintf(`
+					SELECT
+						date,
+						price,
+						AVG(price) OVER (ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS moving_avg_30day
+					FROM
+						%s.%s.gold_prices
+					ORDER BY
+						date DESC
+				`, project, dataset.DatasetId),
+				UseLegacySql: pulumi.Bool(false),
+			},
+		})
+		if err != nil {
+			return err
+		}
 
-		// Create a Cloud Monitoring alert policy
-		_, err = monitoring.NewAlertPolicy(ctx, "gold-price-alert", &monitoring.AlertPolicyArgs{
-			DisplayName: pulumi.String("Gold Price Service Alert"),
-			Combiner:    pulumi.String("OR"),
-			Conditions: monitoring.AlertPolicyConditionArray{
-				&monitoring.AlertPolicyConditionArgs{
-					DisplayName: pulumi.String("High error rate"),
-					ConditionThreshold: &monitoring.AlertPolicyConditionConditionThresholdArgs{
-						Filter:     pulumi.String("resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"gold-price-ingestion\" AND metric.type = \"run.googleapis.com/request_count\" AND metric.labels.response_code_class = \"5xx\""),
-						Duration:   pulumi.String("60s"),
-						Comparison: pulumi.String("COMPARISON_GT"),
-						ThresholdValue: pulumi.Float64(5),
-						Aggregations: monitoring.AlertPolicyConditionConditionThresholdAggregationArray{
-							&monitoring.AlertPolicyConditionConditionThresholdAggregationArgs{
-								AlignmentPeriod:  pulumi.String("60s"),
-								PerSeriesAligner: pulumi.String("ALIGN_RATE"),
-							},
-						},
-					},
+		// Create Cloud Composer environment
+		_, err = composer.NewEnvironment(ctx, "gold-price-composer", &composer.EnvironmentArgs{
+			Name:     pulumi.String("gold-price-composer"),
+			Region:   pulumi.String(region),
+			Project:  pulumi.String(project),
+			Config: &composer.EnvironmentConfigArgs{
+				SoftwareConfig: &composer.EnvironmentConfigSoftwareConfigArgs{
+					ImageVersion: pulumi.String("composer-3-airflow-2.9.3"),
 				},
 			},
 		})
