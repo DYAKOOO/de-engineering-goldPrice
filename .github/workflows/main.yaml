@@ -182,7 +182,7 @@ jobs:
       run: |
         gcloud composer environments update gold-price-composer \
           --location ${{ env.REGION }} \
-          --update-pypi-packages-from-file requirements.txt
+          --update-pypi-packages-from-file composer_requirements.txt
 
     - name: Update Composer environment variables
       if: steps.check_composer.outputs.composer_ready == 'true'
