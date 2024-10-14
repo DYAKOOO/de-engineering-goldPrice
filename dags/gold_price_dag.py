@@ -81,4 +81,5 @@ stop_instance = ComputeEngineStopInstanceOperator(
     dag=dag,
 )
 
+
 fetch_task >> start_instance >> run_clean_transform >> run_load_to_bigquery >> stop_instance
