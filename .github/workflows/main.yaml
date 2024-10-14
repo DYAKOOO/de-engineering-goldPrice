@@ -148,6 +148,8 @@ jobs:
         chmod 600 /tmp/spark_ssh_key
         SPARK_IP=$(gcloud compute instances describe spark-instance --zone ${{ env.REGION }}-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
         echo "Attempting to connect to Spark instance at IP: $SPARK_IP"
+        echo "Content of /tmp/spark_ssh_key (first few lines):"
+        head -n 5 /tmp/spark_ssh_key
         ssh -v -i /tmp/spark_ssh_key -o StrictHostKeyChecking=no ubuntu@$SPARK_IP 'echo SSH connection successful'
         rm /tmp/spark_ssh_key
 
@@ -168,6 +170,13 @@ jobs:
           --conn-port 22 \
           --conn-extra '{"key_file": "/home/airflow/gcs/data/spark_ssh_key", "no_host_key_check": "true"}'
         echo "SSH connection configured in Composer"
+        echo "Content of SSH key in Composer (first few lines):"
+        gcloud composer environments run gold-price-composer \
+          --location ${{ env.REGION }} \
+          python -- -c "
+        with open('/home/airflow/gcs/data/spark_ssh_key', 'r') as f:
+            print(f.read())
+        "
 
     - name: Test SSH Connection from Composer
       if: steps.check_composer.outputs.composer_ready == 'true'
