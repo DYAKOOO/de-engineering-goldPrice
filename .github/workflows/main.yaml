@@ -71,7 +71,7 @@ jobs:
       run: |
         gcloud composer environments update gold-price-composer \
           --location ${{ env.REGION }} \
-          --update-pypi-packages-from-file requirements.txt
+          --update-pypi-packages-from-file composer_requirements.txt
 
     - name: Upload DAG and supporting files to Cloud Composer
       if: steps.check_composer.outputs.composer_ready == 'true'
