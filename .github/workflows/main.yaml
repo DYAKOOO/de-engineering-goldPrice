@@ -90,12 +90,6 @@ jobs:
           --set-env-vars PUBSUB_TOPIC=gold-price \
           --service-account goldprice-service-account@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
 
-    - name: Update DAG file
-      run: |
-        sed -i 's/from data_sources/from de_goldprice.data_sources/' dags/gold_price_dag.py
-        sed -i 's/from pubsub_producer/from de_goldprice.pubsub_producer/' dags/gold_price_dag.py
-        gsutil cp dags/gold_price_dag.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
-
     - name: Check Composer Environment Status
       id: check_composer
       run: |
@@ -178,37 +172,6 @@ jobs:
           --conn-extra '{"key_file": "/home/airflow/gcs/data/spark_ssh_key", "no_host_key_check": "true"}'
         echo "SSH connection configured in Composer"
 
-    - name: Verify SSH Key in Composer
-      if: steps.check_composer.outputs.composer_ready == 'true'
-      run: |
-        gcloud composer environments run gold-price-composer \
-          --location ${{ env.REGION }} \
-          variables -- set SPARK_SSH_KEY "$(cat /tmp/spark_ssh_key)"
-        echo "SSH key content set as Airflow variable"
-
-    - name: Test SSH Connection from Composer
-      if: steps.check_composer.outputs.composer_ready == 'true'
-      run: |
-        echo "Testing SSH connection from Composer to Spark instance"
-        gcloud composer environments run gold-price-composer \
-          --location ${{ env.REGION }} \
-          tasks -- run gold_price_pipeline test_ssh_connection \
-          -A '{"ssh_conn_id": "spark_instance_ssh_hook", "cmd": "echo SSH connection from Composer successful"}'
-    
-    - name: Configure Firewall for Spark Instance
-      run: |
-        if ! gcloud compute firewall-rules describe allow-composer-to-spark &>/dev/null; then
-          gcloud compute firewall-rules create allow-composer-to-spark \
-            --direction=INGRESS \
-            --priority=1000 \
-            --network=default \
-            --action=ALLOW \
-            --rules=tcp:22 \
-            --source-ranges=$(gcloud composer environments describe gold-price-composer --location ${{ env.REGION }} --format="get(config.nodeConfig.composerInternalIpv4CidrBlock)")
-        else
-          echo "Firewall rule allow-composer-to-spark already exists."
-        fi
-    
     - name: Upload Python scripts to Composer
       if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
@@ -217,10 +180,15 @@ jobs:
     - name: Upload DAG to Cloud Composer
       if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
-        gcloud composer environments storage dags import \
-          --environment gold-price-composer \
+        gsutil cp dags/gold_price_dag.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
+
+    - name: Test DAG in Composer
+      if: steps.check_composer.outputs.composer_ready == 'true'
+      run: |
+        echo "Testing DAG in Composer"
+        gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
-          --source dags/gold_price_dag.py
+          dags test gold_price_pipeline
 
     - name: Trigger Airflow DAG
       if: steps.check_composer.outputs.composer_ready == 'true'

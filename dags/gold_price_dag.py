@@ -9,10 +9,6 @@ import os
 import sys
 
 
-
-from data_sources import fetch_gold_price as api_fetch_gold_price
-from pubsub_producer import publish_to_pubsub
-
 PROJECT_ID = 'de-goldprice'
 ZONE = 'us-west1-a'  # Replace with your actual zone
 INSTANCE_NAME = 'spark-instance'
