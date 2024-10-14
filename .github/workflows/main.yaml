@@ -177,6 +177,20 @@ jobs:
       run: |
         gsutil cp data_sources.py pubsub_producer.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
 
+    - name: Update Composer Python packages
+      if: steps.check_composer.outputs.composer_ready == 'true'
+      run: |
+        gcloud composer environments update gold-price-composer \
+          --location ${{ env.REGION }} \
+          --update-pypi-packages-from-file composer_requirements.txt
+
+    - name: Update Composer environment variables
+      if: steps.check_composer.outputs.composer_ready == 'true'
+      run: |
+        gcloud composer environments update gold-price-composer \
+          --location ${{ env.REGION }} \
+          --update-env-variables=GOLD_API_KEY=${{ secrets.GOLD_API_KEY }},FRED_API_KEY=${{ secrets.FRED_API_KEY }},ALPHA_VANTAGE_API_KEY=${{ secrets.ALPHA_VANTAGE_API_KEY }}
+
     - name: Upload DAG to Cloud Composer
       if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
@@ -189,17 +203,7 @@ jobs:
         gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
           dags -- test gold_price_pipeline
-
-    - name: Trigger Airflow DAG
-      if: steps.check_composer.outputs.composer_ready == 'true'
-      run: |
-        if ! gcloud composer environments run gold-price-composer \
-          --location ${{ env.REGION }} \
-          dags -- trigger gold_price_pipeline; then
-          echo "Failed to trigger DAG. Check Airflow logs for more details."
-          exit 1
-        fi
-
+    
     - name: Verify BigQuery Data
       run: |
         ROW_COUNT=$(bq query --use_legacy_sql=false --format=csv '

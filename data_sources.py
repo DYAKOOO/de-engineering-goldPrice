@@ -2,18 +2,14 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import os
-from dotenv import load_dotenv
 
 
-load_dotenv()
 
-#
 API_KEY = os.getenv('GOLD_API_KEY')
 FRED_API_KEY = os.getenv('FRED_API_KEY')
 ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')
 
 #Gold Price Data
-API_KEY = os.getenv('GOLD_API_KEY')
 BASE_URL = 'https://www.goldapi.io/api'
 
 def fetch_gold_price(date):

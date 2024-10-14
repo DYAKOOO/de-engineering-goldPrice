@@ -10,7 +10,7 @@ import sys
 
 
 PROJECT_ID = 'de-goldprice'
-ZONE = 'us-west1-a'  # Replace with your actual zone
+ZONE = 'us-west1-a'  # some are cheaper than others. 
 INSTANCE_NAME = 'spark-instance'
 
 default_args = {
