@@ -188,14 +188,14 @@ jobs:
         echo "Testing DAG in Composer"
         gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
-          dags test gold_price_pipeline
+          dags -- test gold_price_pipeline
 
     - name: Trigger Airflow DAG
       if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
         if ! gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
-          dags trigger -- gold_price_pipeline; then
+          dags -- trigger gold_price_pipeline; then
           echo "Failed to trigger DAG. Check Airflow logs for more details."
           exit 1
         fi
