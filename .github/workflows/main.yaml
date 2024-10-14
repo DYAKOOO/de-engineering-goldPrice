@@ -20,25 +20,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    - name: Setup Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: '1.21'
-
     - name: Setup Python
       uses: actions/setup-python@v2
       with:
         python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Create Service Account Key File
-      run: |
-        echo '${{ secrets.GCP_SA_KEY }}' > sa-key.json
-        chmod 600 sa-key.json
 
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
@@ -50,38 +35,10 @@ jobs:
       with:
         project_id: ${{ env.PROJECT_ID }}
 
-    - name: Configure Docker
-      run: |
-        gcloud auth configure-docker gcr.io
-
-    - name: Get latest version and increment
-      id: get_version
-      run: |
-        LATEST_VERSION=$(gcloud container images list-tags gcr.io/${{ env.PROJECT_ID }}/gold-price-producer --format='get(tags)' --sort-by=~tags | grep '^v1\.0\.' | head -n 1)
-        PATCH_VERSION=$(echo $LATEST_VERSION | cut -d. -f3)
-        NEW_PATCH_VERSION=$((PATCH_VERSION + 1))
-        NEW_VERSION="v1.0.$NEW_PATCH_VERSION"
-        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-    - name: Build and Push New Version
-      env:
-        NEW_VERSION: ${{ steps.get_version.outputs.NEW_VERSION }}
-      run: |
-        docker build -t gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION -f Dockerfile-producer .
-        docker push gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION
-
-    - name: Upload code to GCS
-      run: |
-        gsutil cp *.py gs://de-goldprice-code/
-        echo "Listing contents of GCS bucket:"
-        gsutil ls gs://de-goldprice-code/
-
     - name: Deploy to Cloud Run
-      env:
-        NEW_VERSION: ${{ steps.get_version.outputs.NEW_VERSION }}
       run: |
         gcloud run deploy gold-price-ingestion \
-          --image gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$NEW_VERSION \
+          --source . \
           --region ${{ env.REGION }} \
           --set-env-vars GCS_BUCKET=gold-price-raw-data \
           --set-env-vars GOLD_API_KEY="${{ secrets.GOLD_API_KEY }}" \
@@ -98,84 +55,16 @@ jobs:
         for i in $(seq 1 $MAX_RETRIES); do
           STATUS=$(gcloud composer environments describe gold-price-composer --location ${{ env.REGION }} --format="value(state)")
           if [ "$STATUS" = "RUNNING" ]; then
-            echo "Composer environment is running."
             echo "composer_ready=true" >> $GITHUB_OUTPUT
             break
           elif [ "$STATUS" = "UPDATING" ]; then
             echo "Composer environment is updating. Waiting..."
             sleep $RETRY_INTERVAL
           else
-            echo "Composer environment is in an unexpected state: $STATUS"
             echo "composer_ready=false" >> $GITHUB_OUTPUT
             exit 1
           fi
         done
-        if [ "$STATUS" != "RUNNING" ]; then
-          echo "Composer environment did not become ready in time."
-          echo "composer_ready=false" >> $GITHUB_OUTPUT
-          exit 1
-        fi
-
-    - name: Upload SSH key to Composer
-      if: steps.check_composer.outputs.composer_ready == 'true'
-      run: |
-        echo "${{ secrets.SPARK_SSH_PRIVATE_KEY }}" > /tmp/spark_ssh_key
-        gcloud composer environments storage data import \
-          --environment gold-price-composer \
-          --location ${{ env.REGION }} \
-          --source /tmp/spark_ssh_key \
-          --destination spark_ssh_key
-        rm /tmp/spark_ssh_key
-        echo "SSH key uploaded to Composer"
-
-    - name: Verify SSH key in Composer
-      if: steps.check_composer.outputs.composer_ready == 'true'
-      run: |
-        gcloud composer environments storage data list \
-          --environment gold-price-composer \
-          --location ${{ env.REGION }} \
-          | grep spark_ssh_key
-
-    - name: Print Public Key
-      run: |
-        echo "${{ secrets.SPARK_SSH_PRIVATE_KEY }}" > /tmp/spark_ssh_key
-        chmod 600 /tmp/spark_ssh_key
-        ssh-keygen -y -f /tmp/spark_ssh_key
-        rm /tmp/spark_ssh_key
-        
-    - name: Test SSH Connection Directly
-      run: |
-        echo "${{ secrets.SPARK_SSH_PRIVATE_KEY }}" > /tmp/spark_ssh_key
-        chmod 600 /tmp/spark_ssh_key
-        SPARK_IP=$(gcloud compute instances describe spark-instance --zone ${{ env.REGION }}-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
-        echo "Attempting to connect to Spark instance at IP: $SPARK_IP"
-        echo "Content of /tmp/spark_ssh_key (first few lines):"
-        head -n 5 /tmp/spark_ssh_key
-        ssh -v -i /tmp/spark_ssh_key -o StrictHostKeyChecking=no diako@$SPARK_IP 'echo SSH connection successful'
-        rm /tmp/spark_ssh_key
-      
-    - name: Configure SSH connection in Composer
-      if: steps.check_composer.outputs.composer_ready == 'true'
-      run: |
-        SPARK_IP=$(gcloud compute instances describe spark-instance --zone ${{ env.REGION }}-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
-        echo "Configuring SSH connection to Spark instance at IP: $SPARK_IP"
-        gcloud composer environments run gold-price-composer \
-          --location ${{ env.REGION }} \
-          connections -- delete 'spark_instance_ssh_hook' || true
-        gcloud composer environments run gold-price-composer \
-          --location ${{ env.REGION }} \
-          connections -- add 'spark_instance_ssh_hook' \
-          --conn-type 'ssh' \
-          --conn-host "$SPARK_IP" \
-          --conn-login 'ubuntu' \
-          --conn-port 22 \
-          --conn-extra '{"key_file": "/home/airflow/gcs/data/spark_ssh_key", "no_host_key_check": "true"}'
-        echo "SSH connection configured in Composer"
-
-    - name: Upload Python scripts to Composer
-      if: steps.check_composer.outputs.composer_ready == 'true'
-      run: |
-        gsutil cp data_sources.py pubsub_producer.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
 
     - name: Update Composer Python packages
       if: steps.check_composer.outputs.composer_ready == 'true'
@@ -184,6 +73,11 @@ jobs:
           --location ${{ env.REGION }} \
           --update-pypi-packages-from-file requirements.txt
 
+    - name: Upload DAG and supporting files to Cloud Composer
+      if: steps.check_composer.outputs.composer_ready == 'true'
+      run: |
+        gsutil cp dags/* gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
+
     - name: Update Composer environment variables
       if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
@@ -191,19 +85,20 @@ jobs:
           --location ${{ env.REGION }} \
           --update-env-variables=GOLD_API_KEY=${{ secrets.GOLD_API_KEY }},FRED_API_KEY=${{ secrets.FRED_API_KEY }},ALPHA_VANTAGE_API_KEY=${{ secrets.ALPHA_VANTAGE_API_KEY }}
 
-    - name: Upload DAG to Cloud Composer
-      if: steps.check_composer.outputs.composer_ready == 'true'
-      run: |
-        gsutil cp dags/gold_price_dag.py gs://us-west1-gold-price-compose-71bd680f-bucket/dags/
-
     - name: Test DAG in Composer
       if: steps.check_composer.outputs.composer_ready == 'true'
       run: |
-        echo "Testing DAG in Composer"
         gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
           dags -- test gold_price_pipeline
-    
+
+    - name: Trigger Airflow DAG
+      if: steps.check_composer.outputs.composer_ready == 'true'
+      run: |
+        gcloud composer environments run gold-price-composer \
+          --location ${{ env.REGION }} \
+          dags -- trigger gold_price_pipeline
+
     - name: Verify BigQuery Data
       run: |
         ROW_COUNT=$(bq query --use_legacy_sql=false --format=csv '
@@ -217,10 +112,3 @@ jobs:
         else
           echo "Found $ROW_COUNT rows for today in BigQuery."
         fi
-
-    - name: Clean up old images
-      run: |
-        OLD_VERSIONS=$(gcloud container images list-tags gcr.io/${{ env.PROJECT_ID }}/gold-price-producer --format='get(tags)' --sort-by=~tags | tail -n +6)
-        for version in $OLD_VERSIONS; do
-          gcloud container images delete gcr.io/${{ env.PROJECT_ID }}/gold-price-producer:$version --quiet
-        done
