@@ -1,6 +1,6 @@
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
-from airflow.providers.google.cloud.operators.compute import ComputeEngineStartInstanceOperator, ComputeEngineStopInstanceOperator
+from airflow.operators.dummy_operator import DummyOperator
 from airflow.providers.ssh.operators.ssh import SSHOperator
 from datetime import datetime, timedelta
 from data_sources import fetch_gold_price as api_fetch_gold_price
@@ -8,7 +8,7 @@ from pubsub_producer import publish_to_pubsub
 import os
 
 PROJECT_ID = 'de-goldprice'
-ZONE = 'us-west1-a'  # Replace with your actual zone
+ZONE = 'us-west1-a'
 INSTANCE_NAME = 'spark-instance'
 
 default_args = {
@@ -29,7 +29,7 @@ dag = DAG(
 )
 
 def fetch_gold_price(**kwargs):
-    date_str = kwargs['ds']  # Airflow provides the execution date as 'ds'
+    date_str = kwargs['ds']
     gold_price_data = api_fetch_gold_price(date_str)
     if gold_price_data:
         publish_to_pubsub('gold-prices', gold_price_data)
@@ -43,11 +43,8 @@ fetch_task = PythonOperator(
     dag=dag,
 )
 
-start_instance = ComputeEngineStartInstanceOperator(
+start_instance = DummyOperator(
     task_id='start_instance',
-    project_id=PROJECT_ID,
-    zone=ZONE,
-    resource_id=INSTANCE_NAME,
     dag=dag,
 )
 
@@ -65,11 +62,8 @@ run_load_to_bigquery = SSHOperator(
     dag=dag,
 )
 
-stop_instance = ComputeEngineStopInstanceOperator(
+stop_instance = DummyOperator(
     task_id='stop_instance',
-    project_id=PROJECT_ID,
-    zone=ZONE,
-    resource_id=INSTANCE_NAME,
     dag=dag,
 )
 
