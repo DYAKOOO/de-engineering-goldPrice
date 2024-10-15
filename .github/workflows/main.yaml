@@ -30,14 +30,19 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install dependencies
+    - name: Install and check main requirements
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-
-    - name: Run pip check
-      run: |
+        echo "Checking main requirements:"
         pip check
+
+    - name: Check Composer requirements
+      run: |
+        echo "Installing and checking Composer requirements:"
+        pip install -r composer_requirements.txt
+        pip check
+        pip uninstall -y -r composer_requirements.txt
 
     - name: Create Service Account Key File
       run: |
@@ -192,6 +197,13 @@ jobs:
         gcloud composer environments update gold-price-composer \
           --location ${{ env.REGION }} \
           --update-pypi-packages-from-file composer_requirements.txt
+
+    - name: Check Composer environment packages
+      if: steps.check_composer.outputs.composer_ready == 'true'
+      run: |
+        gcloud composer environments run gold-price-composer \
+          --location ${{ env.REGION }} \
+          python -- -c "import pip; pip.main(['check'])"
 
     - name: Update Composer environment variables
       if: steps.check_composer.outputs.composer_ready == 'true'
