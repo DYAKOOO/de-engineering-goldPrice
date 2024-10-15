@@ -32,6 +32,14 @@ gcloud pubsub subscriptions list
 gcloud run services logs read gold-price-ingestion --region=us-west1
 ```
 
+### Cloud run endpoint(s)
+```bash
+[IN] SERVICE_URL=$(gcloud run services describe gold-price-ingestion --region=us-west1 --format='value(status.url)')
+[IN] curl ${SERVICE_URL}
+{"message":"Gold Price Ingestion Service is running","status":"ok"}
+[IN] curl ${SERVICE_URL}/fetch-and-publish
+{"data":{"date":"2024-10-15","high_price":2652.855,"low_price":2645.465,"open_price":2648.96,"price":2646.825},"status":"success"}
+```
 
 ## Compute Engine 
 
@@ -73,3 +81,7 @@ bq query --use_legacy_sql=false 'SELECT * FROM `de-goldprice.gold_price_dataset.
 gsutil cat gs://gold-price-raw-data/some_file.json | head -n 20
 ```
 
+### Configure Docker to use gcloud as a credential helper:
+```bash
+gcloud auth configure-docker
+```

@@ -51,6 +51,10 @@ def write_to_gcs(data):
     blob = bucket.blob(f'gold_price_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
     blob.upload_from_string(json.dumps(data))
     logger.info(f"Data written to GCS: {blob.name}")
+    
+@app.route('/')
+def home():
+    return jsonify({"status": "ok", "message": "Gold Price Ingestion Service is running"}), 200
 
 @app.route('/fetch-and-publish')
 def fetch_and_publish():
@@ -96,3 +100,4 @@ def publish_to_pubsub(topic_name, data):
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)
+    logger.info(f"Application starting on port {port}")
