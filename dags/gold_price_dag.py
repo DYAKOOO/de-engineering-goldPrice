@@ -6,11 +6,9 @@ from datetime import datetime, timedelta
 from data_sources import fetch_gold_price as api_fetch_gold_price
 from pubsub_producer import publish_to_pubsub
 import os
-import sys
-
 
 PROJECT_ID = 'de-goldprice'
-ZONE = 'us-west1-a'  # some are cheaper than others. 
+ZONE = 'us-west1-a'  # Replace with your actual zone
 INSTANCE_NAME = 'spark-instance'
 
 default_args = {
@@ -34,7 +32,6 @@ def fetch_gold_price(**kwargs):
     date_str = kwargs['ds']  # Airflow provides the execution date as 'ds'
     gold_price_data = api_fetch_gold_price(date_str)
     if gold_price_data:
-        # Publish to Pub/Sub
         publish_to_pubsub('gold-prices', gold_price_data)
         return "Gold price data fetched and published successfully"
     else:
@@ -50,21 +47,20 @@ start_instance = ComputeEngineStartInstanceOperator(
     task_id='start_instance',
     project_id=PROJECT_ID,
     zone=ZONE,
-    instance_name=INSTANCE_NAME,
+    resource_id=INSTANCE_NAME,
     dag=dag,
 )
 
 run_clean_transform = SSHOperator(
     task_id='run_clean_transform',
-    ssh_hook='spark_instance_ssh_hook',
+    ssh_conn_id='spark_instance_ssh_hook',
     command='spark-submit /path/to/clean_transform.py',
     dag=dag,
 )
 
-
 run_load_to_bigquery = SSHOperator(
     task_id='run_load_to_bigquery',
-    ssh_hook='spark_instance_ssh_hook',
+    ssh_conn_id='spark_instance_ssh_hook',
     command='spark-submit /path/to/load_to_bigquery.py',
     dag=dag,
 )
@@ -73,9 +69,8 @@ stop_instance = ComputeEngineStopInstanceOperator(
     task_id='stop_instance',
     project_id=PROJECT_ID,
     zone=ZONE,
-    instance_name=INSTANCE_NAME,
+    resource_id=INSTANCE_NAME,
     dag=dag,
 )
-
 
 fetch_task >> start_instance >> run_clean_transform >> run_load_to_bigquery >> stop_instance
