@@ -30,6 +30,11 @@ jobs:
       with:
         python-version: '3.10'
 
+    - name: Install Go dependencies
+      run: |
+        cd infrastructure
+        go mod download
+
     - name: Install and check main requirements
       run: |
         python -m pip install --upgrade pip
@@ -84,6 +89,16 @@ jobs:
         gsutil cp *.py gs://de-goldprice-code/
         echo "Listing contents of GCS bucket:"
         gsutil ls gs://de-goldprice-code/
+
+    - name: Deploy Infrastructure with Pulumi
+      run: |
+        cd infrastructure
+        pulumi login
+        pulumi stack select dev
+        pulumi config set gcp:project ${{ env.PROJECT_ID }}
+        pulumi up --yes
+      env:
+        PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
 
     - name: Deploy to Cloud Run
       env:
