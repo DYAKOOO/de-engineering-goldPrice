@@ -45,6 +45,7 @@ fetch_task = PythonOperator(
 
 start_instance = DummyOperator(
     task_id='start_instance',
+    resource_id=INSTANCE_NAME,
     dag=dag,
 )
 

@@ -20,6 +20,10 @@
       echo "export GOPATH=/workspace/gopath" >> /root/.bashrc
       echo "export PATH=/workspace/go/bin:$$PATH" >> /root/.bashrc
       source /root/.bashrc
+      cd infrastructure
+      go mod download
+      go mod tidy
+      go build
       go version
 
 # Install Pulumi
