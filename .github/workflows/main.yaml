@@ -218,7 +218,9 @@ jobs:
       run: |
         gcloud composer environments run gold-price-composer \
           --location ${{ env.REGION }} \
-          python -- -c "import pip; pip.main(['check'])"
+          tasks -- run check_packages \
+          check_packages_task \
+          $(date -u +"%Y-%m-%d")
 
     - name: Update Composer environment variables
       if: steps.check_composer.outputs.composer_ready == 'true'
